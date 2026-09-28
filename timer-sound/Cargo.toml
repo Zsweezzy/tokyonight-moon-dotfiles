@@ -1,0 +1,11 @@
+[package]
+name = "timer-sound"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "timer-sound"
+path = "src/main.rs"
+
+# No dependencies: the 44-byte WAV header is written by hand, so the crate
+# stays dependency-free and builds anywhere rustc does.
