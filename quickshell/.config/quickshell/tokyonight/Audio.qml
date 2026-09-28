@@ -55,9 +55,9 @@ Module {
     onClicked: button => {
         if (button === Qt.LeftButton) {
             if (root.flyoutHost) root.flyoutHost.toggleFor(root)
-            else Quickshell.execDetached([Tokyo.scriptDir + "/audio-popup.py"])
+            else Quickshell.execDetached([Tokyo.scriptDir + "/audio-popup"])
         } else {
-            Quickshell.execDetached([Tokyo.scriptDir + "/audio-popup.py"])
+            Quickshell.execDetached([Tokyo.scriptDir + "/audio-popup"])
         }
     }
 
