@@ -1,0 +1,25 @@
+/** rofi config — Tokyo Night Moon **/
+configuration {
+    modi: "drun,run,window";
+    show-icons: true;
+    icon-theme: "breeze";
+    font: "JetBrainsMono Nerd Font 12";
+    display-drun: " Apps ";
+    display-run: " Run ";
+    display-window: " Windows ";
+    drun-display-format: "{name}";
+    drun-show-actions: false;
+    click-to-exit: true;
+    hover-select: true;
+    me-select-entry: "";
+    me-accept-entry: "MousePrimary";
+    width: 620;
+    lines: 10;
+    padding: 8;
+    hide-scrollbar: true;
+    sidebar-mode: false;
+    disable-history: false;
+    case-sensitive: false;
+}
+
+@theme "tokyonight-moon"

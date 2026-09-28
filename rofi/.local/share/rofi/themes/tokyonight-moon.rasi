@@ -1,0 +1,150 @@
+/* Tokyo Night Moon — rofi 2.0 theme
+ * Palette (matches waybar / hyprland / kde dotfiles):
+ *   bg_dark #16161e | bg #1e2030 | bg_highlight #2f334d
+ *   fg #c8d3f5 | blue #82aaff | cyan #86e1fc | green #9ece6a
+ *   yellow #e0af68 | magenta #bb9af7 | red #ff757f | comment #636da6
+ */
+
+* {
+    background-color: transparent;
+    text-color: #c8d3f5;
+    border-color: #2f334d;
+    selected-background-color: #2f334d;
+    selected-text-color: #c8d3f5;
+    urgent-background-color: #ff757f;
+    urgent-text-color: #16161e;
+    active-background-color: #82aaff;
+    active-text-color: #16161e;
+    spacing: 4px;
+    margin: 0px;
+    padding: 0px;
+    font: "JetBrainsMono Nerd Font 12";
+}
+
+window {
+    background-color: rgba(30, 32, 48, 0.9);
+    border: 2px solid;
+    border-color: #2f334d;
+    border-radius: 12px;
+    width: 620px;
+    location: center;
+    anchor: center;
+    margin: 0px;
+    padding: 8px;
+}
+
+mainbox {
+    background-color: transparent;
+    border-radius: 10px;
+    padding: 6px;
+}
+
+inputbar {
+    background-color: transparent;
+    padding: 8px 10px;
+    border-radius: 8px;
+    spacing: 10px;
+}
+
+prompt {
+    text-color: #82aaff;
+    padding: 0px;
+    margin: 0px;
+}
+
+entry {
+    text-color: #c8d3f5;
+    placeholder: "Search…";
+    placeholder-color: #636da6;
+    padding: 0px;
+    margin: 0px;
+}
+
+listview {
+    padding: 6px 0px 0px 0px;
+    lines: 10;
+    columns: 1;
+    spacing: 2px;
+    scrollbar: false;
+}
+
+element {
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin: 1px 0px;
+    background-color: transparent;
+    text-color: #c8d3f5;
+}
+
+element selected {
+    background-color: #2f334d;
+    border: 0px solid;
+}
+
+element normal.urgent {
+    text-color: #ff757f;
+}
+
+element selected.urgent {
+    background-color: #ff757f;
+    text-color: #16161e;
+}
+
+element normal.active {
+    text-color: #82aaff;
+}
+
+element selected.active {
+    background-color: #82aaff;
+    text-color: #16161e;
+}
+
+element-text {
+    text-color: #c8d3f5;
+    margin: 0px 8px;
+    vertical-align: 0.5;
+}
+
+element-text selected {
+    text-color: #ffffff;
+}
+
+element-icon {
+    size: 22px;
+    margin: 0px 4px 0px 0px;
+    vertical-align: 0.5;
+}
+
+mode-switcher {
+    spacing: 4px;
+    padding: 4px 0px 0px 0px;
+}
+
+button {
+    padding: 6px 10px;
+    border-radius: 8px;
+    background-color: #1e2030;
+    border: 1px solid;
+    border-color: #2f334d;
+    text-color: #c8d3f5;
+}
+
+button selected {
+    background-color: #82aaff;
+    text-color: #16161e;
+    border-color: #82aaff;
+}
+
+message {
+    padding: 6px 10px 0px 10px;
+}
+
+message textbox {
+    text-color: #c8d3f5;
+}
+
+scrollbar {
+    handle-color: #2f334d;
+    handle-width: 4px;
+    background-color: rgba(22, 22, 30, 1);
+}
