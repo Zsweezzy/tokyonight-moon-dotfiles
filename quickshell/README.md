@@ -23,17 +23,17 @@ Notable contents of that one directory:
 | --- | --- |
 | `*.qml` (29 files) | The shell itself: `shell.qml` is the entry point, `Tokyo.qml` holds shared singletons and config, the rest are bar modules and flyout panels. |
 | `assets/` | `timer-done.wav`, the chime played when the timer finishes. |
-| `scripts/` | Poller and action helpers (`.sh`) invoked from QML, plus the generators `make-timer-icon.py` and the superseded `audio-popup.py`. |
+| `scripts/` | Poller and action helpers (`.sh`) invoked from QML, plus the generator `make-timer-icon.py` and the compiled `audio-popup` binary. |
 | `tests/` | `test-network-monitor.sh`, a self-check for the network monitor poller. |
 | `README.md` | The shell's own detailed notes, kept as-is from the live tree. |
 
 Script notes:
 
-- `scripts/audio-popup.py` is superseded. `Audio.qml` invokes `scripts/audio-popup`
+- `scripts/audio-popup.py` was removed. The audio panel is `scripts/audio-popup`
   — the compiled binary from the `audio-popup/` cargo project at the repository
-  root — not the Python. The binary is a build artifact and is not mirrored
-  here; build that crate and copy `target/release/audio-popup` to
-  `scripts/audio-popup` to install it.
+  root. The binary is a build artifact and is not mirrored here; build that
+  crate and copy `target/release/audio-popup` to `scripts/audio-popup` to
+  install it.
 - `scripts/make-timer-icon.py` renders `assets/timer-done.png`, the image
   `TimerState.qml` passes to the timer alert with `-i`. `assets/timer-done.wav`
   has its own generator, the `timer-sound/` cargo project; both assets are

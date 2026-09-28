@@ -77,8 +77,9 @@ module at `scripts/`.
   the Ethernet tooltip.
 - Clicking the audio pill opens a flyout (`AudioFlyout.qml`) with per-application
   volume sliders + mute toggles and click-to-switch output/input devices
-  (defaults set via `Pipewire.preferredDefaultAudioSink/Source`). It replaces
-  the old `audio-popup.py` on left-click; right/middle click still launches it.
+  (defaults set via `Pipewire.preferredDefaultAudioSink/Source`). It replaced
+  the old Python audio panel on left-click; right/middle click launches the
+  compiled `audio-popup` panel.
 - Clicking the cpu / gpu / mem pills opens `btop` in a kitty window
   (`Quickshell.execDetached`, replacing waybar's on-click).
 - **Apps cluster / "minimize to tray"** (`OpenApps.qml`, the dropped waybar tray
