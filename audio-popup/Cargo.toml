@@ -1,0 +1,19 @@
+[package]
+name = "audio-popup"
+version = "0.1.0"
+edition = "2021"
+description = "Tokyo Night Moon audio panel for Hyprland (GTK4 layer-shell)"
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11" }
+glib = "0.22"
+gtk4-layer-shell = "0.8.1"
+# hyprctl -j output only. No serde derive: we walk serde_json::Value by hand.
+serde_json = "1"
+# glib 0.22 dropped unix_signal_add_local(), so SIGTERM/SIGINT are caught with
+# a sigwait thread (nix keeps that safe, so #![forbid(unsafe_code)] holds).
+# Sending a signal still goes through kill(1) rather than libc::kill.
+nix = { version = "0.31", features = ["signal"] }
+
+[profile.release]
+strip = true
