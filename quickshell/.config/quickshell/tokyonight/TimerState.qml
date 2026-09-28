@@ -267,9 +267,14 @@ Singleton {
             ? root.fmt(due[0].totalMs) + " timer finished"
             : due.length + " timers finished ("
                 + due.map(t => root.fmt(t.totalMs)).join(", ") + ")"
+        // The icon is a file, not a theme name: the active theme (YAMIS) has
+        // no timer/clock/alarm glyph at any size, so a name falls back to a
+        // 48 px image stretched to ~200 px — the blur. The asset is rendered
+        // by scripts/make-timer-icon.py from the same font the shell uses.
         Quickshell.execDetached([
             "notify-send", "-a", "tokyonight", "-u", "critical",
-            "-i", "appointment-soon", "Timer done", body
+            "-i", Tokyo.scriptDir + "/../assets/timer-done.png",
+            "Timer done", body
         ])
     }
 }
