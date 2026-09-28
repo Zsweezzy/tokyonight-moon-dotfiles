@@ -28,18 +28,20 @@ Item {
     /// cap the list and clip it; -1 grows with the number of timers. Ignored
     /// while `pinFormToBottom` is set — then the cap comes from the space.
     property int maxListHeight: -1
-    /// row height: 36. There is exactly one host — ClockFlyout's TIMERS pane —
+    /// row height: 38. There is exactly one host — ClockFlyout's TIMERS pane —
     /// and it used to pass 36 here over a default of 46 that therefore never
     /// took effect, so this is now the one place the number lives and the host
     /// says nothing.
     ///
-    /// 36 is what five rows fit into: the pane is 337 px of body and the cap
-    /// leaves 15 px spare, so a row could only grow to 39 before the count
-    /// drops to four. The tightness INSIDE a row is therefore not something a
-    /// taller row was going to rescue — it is what the capacity budget spends.
+    /// 38 is what five rows fit into: the measured cap is 227 px, so five rows
+    /// at 38 with the 8 px gaps take 5 × 38 + 4 × 8 = 222 px and leave 5 px
+    /// spare (at 36 the same five rows left 15). The drop boundary is the same
+    /// either way: a row could only grow to 39 before the count falls to four.
+    /// The tightness INSIDE a row is therefore not something a taller row was
+    /// going to rescue — it is what the capacity budget spends.
     /// See the README. The cap itself is derived, see `listCap`; this is what
     /// it is divided by.
-    property int rowH: 36
+    property int rowH: 38
 
     /// The host's box is taller than this panel's content and wants the form
     /// pinned to the bottom of it, with the list at the top and the slack
@@ -193,15 +195,18 @@ Item {
                     row.closePrecise()
                     // Checked against the raw string, not the parts: `Number("")`
                     // is 0, so "::" and "-" split into numbers without error and
-                    // would reach scrub() as 0 — which is a running timer's end,
+                    // would reach retime() as 0 — which is a running timer's end,
                     // and fires it. Same regex as TimerCreator.parse, so the two
                     // boxes take the same set of strings and neither surprises.
+                    // 0 itself is legitimate: retime() allows it, so a paused
+                    // timer parks its playhead at 0 and stays paused, and a
+                    // running one ends now.
                     if (!/^\d{1,3}(:\d{1,2}){0,2}$/.test(typed)) return
                     const parts = typed.split(":").map(Number)
                     let ms = parts[0] * 60000
                     if (parts.length === 2) ms = parts[0] * 60000 + parts[1] * 1000
                     if (parts.length === 3) ms = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000
-                    TimerState.scrub(row.t.id, ms)
+                    TimerState.retime(row.t.id, ms)
                 }
 
                 // The playhead's grab area: a 12 px transparent strip on the
@@ -243,12 +248,12 @@ Item {
                     // holding: a hover near the right end of a strip would set
                     // remaining to 0 and fire a running timer — chime and
                     // notification — from a mouse merely crossing the panel.
-                    onPressed: {
+                    onPressed: (mouse) => {
                         preciseWait.stop()
                         row.closePrecise()
                         row.scrubTo(mouse.x)
                     }
-                    onPositionChanged: if (pressed) row.scrubTo(mouse.x)
+                    onPositionChanged: (mouse) => { if (pressed) row.scrubTo(mouse.x) }
                     onEntered: preciseWait.start()
                     onExited: {
                         preciseWait.stop()
@@ -262,7 +267,7 @@ Item {
                         left: parent.left; right: parent.right
                         leftMargin: 4; rightMargin: 4
                         verticalCenter: parent.verticalCenter
-                        verticalCenterOffset: -2   // clears the progress bar
+                        verticalCenterOffset: -4   // keeps the bar clear: air measured below
                     }
                     spacing: 8
 
@@ -351,14 +356,14 @@ Item {
                     }
                 }
 
-                // Precise entry: resting the pointer on the strip for half a
+                // Precise entry: resting the pointer on the strip for one
                 // second opens a box to type an exact remaining time into. The
                 // delay is what keeps a sweep across several bars from opening
                 // five boxes at once. Deliberately started on the hover and not
                 // on the press, so it can never pop open under a drag.
                 Timer {
                     id: preciseWait
-                    interval: 500
+                    interval: 1000
                     onTriggered: row.openPrecise()
                 }
 

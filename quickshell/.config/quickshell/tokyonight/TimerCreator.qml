@@ -12,9 +12,10 @@
 // order. (forceLayout() also rescues it, but only if you remember to call it.)
 //
 // Range is 1-30 minutes in 1-minute steps, matching the slider. The manual box
-// accepts finer values ("4:30") because that is the reason it exists — the
-// slider then rounds to the nearest minute for display, while the started
-// timer keeps the exact value that was typed.
+// accepts finer values ("4:30") because that is the reason it exists; typing
+// there live-moves the slider, rounded to whole minutes so the readout stays
+// honest. But only Enter starts the exact typed value — START starts the
+// slider's whole minutes, not what is in the box.
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic as Controls

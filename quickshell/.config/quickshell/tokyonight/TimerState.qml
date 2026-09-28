@@ -123,20 +123,20 @@ Singleton {
     /// start a timer of `ms` length; returns its id
     function start(ms) {
         const length = Math.max(1000, Math.min(root.maxMs, Math.round(ms)))
+        // Refresh the display cache on the write, like every deadline writer.
+        // `now` is a cache the 200 ms tick keeps fresh, but that tick only runs
+        // while the list is non-empty, so the FIRST start() after an empty list
+        // used to stamp its deadline from a `now` frozen since the shell last
+        // had no timers: a 30-minute timer started after ten idle minutes came
+        // back with twenty left. Rather than argue about which writers may get
+        // away with a stale cache, every one of them (`start`, `scrub`,
+        // `retime`, `togglePause`, `nudge`, `pauseAll`) refreshes `now` first,
+        // so a deadline is always stamped off the real clock.
+        root.now = Date.now()
         const t = {
             id: root.nextId++,
             totalMs: length,
-            // Date.now(), NOT root.now. `now` is a display cache, refreshed by the
-            // 200 ms tick near the top, and that tick only runs while the list is
-            // non-empty, so the FIRST start() after an empty list stamped its
-            // deadline from a `now` frozen since the shell last had no timers: a
-            // 30-minute timer started after ten idle minutes came back with twenty
-            // left. Of the five places that stamp `endsAt`, this is the only one
-            // that HAD to change: `scrub()` also reads the real clock, but it only
-            // ever runs on a timer that is already in the list. The other three
-            // (`togglePause`, `nudge`, `pauseAll`) need a live timer too, which
-            // means the tick IS running and `now` is at most 200 ms old there.
-            endsAt: Date.now() + length,
+            endsAt: root.now + length,
             remaining: length,
             paused: false,
             fired: false,
@@ -158,6 +158,7 @@ Singleton {
         const t = root.byId(id)
         if (!t || t.fired) return
         if (t.paused) {
+            root.now = Date.now()
             root.replace(id, { paused: false, endsAt: root.now + t.remaining })
         } else {
             root.replace(id, { paused: true, remaining: root.remainingMs(t) })
@@ -169,7 +170,7 @@ Singleton {
     ///
     /// The bar is a playhead over the timer's own length, so `ms` is clamped
     /// into [0, totalMs]. A drag must never quietly lengthen or shorten a
-    /// timer — `nudge()` is still the only way to change a timer's length.
+    /// timer — changing a length is `retime()`'s job.
     ///
     /// A fired timer is locked: this returns and changes nothing, because the
     /// row's `+1` is the only route back from finished. A paused timer stores
@@ -187,10 +188,47 @@ Singleton {
         // and `endsAt <= root.now` is never true, so the timer could never fire
         // again. No caller can pass a non-number today; `scrub` is public API now.
         const left = Math.max(0, Math.min(t.totalMs, Math.round(ms) || 0))
+        // cache refresh on the write, like every deadline writer, see `start`
+        root.now = Date.now()
         if (t.paused) {
             root.replace(id, { remaining: left })
         } else {
-            root.replace(id, { endsAt: Date.now() + left })
+            root.replace(id, { endsAt: root.now + left })
+        }
+    }
+
+    /// The precise box's scrub: type how much is left, and when the number fits
+    /// inside the timer's total it is exactly `scrub()` — playhead moves, total
+    /// untouched. The difference is what `scrub()` must refuse: typing a length
+    /// PAST the total lengthens the timer to that value, playhead at the top of
+    /// the new length, counting down from the full amount. So the two-way rule
+    /// (that exact value, or the whole existing length) is how a timer's length
+    /// changes now; the drag stays a pure playhead.
+    ///
+    /// A paused timer gets the new total and stays paused — same rule as
+    /// scrub, retiming is not resuming. A fired timer is locked. `ms = 0` is
+    /// allowed: on a paused timer it parks the playhead at zero without firing,
+    /// on a running one a deadline of "now" fires it on the next tick.
+    function retime(id, ms) {
+        const t = root.byId(id)
+        if (!t || t.fired) return
+        const value = Math.round(ms) || 0
+        root.now = Date.now()
+        if (value <= t.totalMs) {
+            // within the total: a playhead move, identical to scrub
+            if (t.paused) {
+                root.replace(id, { remaining: value })
+            } else {
+                root.replace(id, { endsAt: root.now + value })
+            }
+        } else {
+            const total = Math.min(root.maxMs, value)
+            // past the total: the timer BECOMES that long, playhead at the top
+            if (t.paused) {
+                root.replace(id, { totalMs: total, remaining: total })
+            } else {
+                root.replace(id, { totalMs: total, endsAt: root.now + total })
+            }
         }
     }
 
@@ -203,6 +241,7 @@ Singleton {
         if (t.fired) {
             if (delta <= 0) return
             const base = Math.min(root.maxMs, Math.max(60000, t.totalMs))
+            root.now = Date.now()
             root.replace(id, {
                 fired: false, firedAt: 0, paused: false,
                 totalMs: base, endsAt: root.now + base, remaining: base
@@ -234,6 +273,7 @@ Singleton {
     /// are skipped, so they are left exactly as they are.
     function pauseAll() {
         const resume = root.running.length === 0
+        if (resume) root.now = Date.now()
         root.timers = root.timers.map(t => {
             if (t.fired || t.paused === !resume) return t
             return resume
@@ -261,7 +301,7 @@ Singleton {
         // notification carries the detail.
         if (root.now - root.lastSoundAt > 700) {
             root.lastSoundAt = root.now
-            Quickshell.execDetached([Tokyo.scriptDir + "/timer-alert.sh"])
+            Quickshell.execDetached(["pw-play", "--volume=1.0", Tokyo.scriptDir + "/../assets/timer-done.wav"])
         }
         const body = due.length === 1
             ? root.fmt(due[0].totalMs) + " timer finished"
