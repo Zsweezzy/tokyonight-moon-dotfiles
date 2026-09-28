@@ -1,0 +1,13 @@
+# Orchestrator bookkeeping — run ledgers and learnings, not user config.
+.opencode/
+
+# Cargo build output from the Rust tools in this repo.
+target/
+**/target/
+
+# Manual config backups. The live ~/.config/hypr tree has eight
+# hyprland.lua.bak* files; the mirrors must never pick them up.
+*.bak
+*.bak[0-9]*
+*~
+*.swp
