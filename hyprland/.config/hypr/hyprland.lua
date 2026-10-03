@@ -334,7 +334,9 @@ hl.config({
 		kb_options = "",
 		kb_rules = "",
 
-		follow_mouse = 1,
+		-- 0 on purpose: no cursor-moving bind exists in this config, so following
+		-- the pointer only made SUPER+arrow move focus away from the mouse.
+		follow_mouse = 0,
 
 		-- Pointer settings mirroring KDE (kcminputrc):
 		--   PointerAcceleration=-0.400  -> libinput pointer speed -0.4
@@ -711,6 +713,41 @@ hl.window_rule({
 	name = "open-on-main-monitor",
 	match = { class = ".*" },
 	monitor = "DP-1",
+})
+
+-- Steam games are fullscreen on the main panel, workspace 10. Must come AFTER
+-- the catch-all above: windowrules match top-to-bottom and the first match
+-- wins, so the `class = ".*"` rule would otherwise consume these windows and
+-- this one would never fire.
+--
+-- The monitor is keyed by NAME, not id. Monitor ids are enum-order and shift
+-- across reboots (id 1 currently resolves to DP-2, a different panel), so a
+-- numeric `monitor = 1` lands games on the wrong screen unpredictably.
+hl.window_rule({
+	name = "steam-game-fullscreen",
+	match = { class = "^steam_app_\\d+$" },
+	fullscreen = true,
+	monitor = "DP-1",
+	workspace = 10,
+})
+
+-- Workspace 10 is the Steam-games workspace, and everything on it is
+-- fullscreen, so a border and rounded corners draw over nothing but the game's
+-- own pixels — visual noise, and a visible seam at the screen edges.
+--
+-- These keys are `no_border` / `no_rounding` on 0.56.2. `border = false` /
+-- `rounding = false` is the 0.47-era spelling of the same thing and is now
+-- silently dropped as an unknown field — third time this file got bitten by it
+-- (window-rule `no_border`, `suppress_event` as a table, this). Neither the lua
+-- binding nor the json printer complains; `configerrors` is the only report.
+--
+-- That spelling is workspace-rule-specific: on `hl.window_rule` `no_border` is
+-- an unknown field and `border_size` is the equivalent — see the
+-- `hypr-scratch-overlay` comment above.
+hl.workspace_rule({
+	workspace = "10",
+	no_border = true,
+	no_rounding = true,
 })
 
 -- Steam notification toasts (friend online, achievements) must survive a
