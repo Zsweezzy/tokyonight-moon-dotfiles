@@ -20,8 +20,13 @@ else
     label=$(printf '\uf1eb  wifi')
 fi
 
+# Whether the SSID is revealed. Reported as its own field, because the label is
+# the only other consumer of this state and an SSID that happens to read "wifi"
+# is indistinguishable from the hidden label.
+if [ -f "$state" ]; then show_ssid=true; else show_ssid=false; fi
+
 if [ -z "$ssid" ]; then
-    printf '{"text": "%s", "tooltip": "Not connected"}\n' "$(jesc "$label")"
+    printf '{"text": "%s", "showSsid": %s, "tooltip": "Not connected"}\n' "$(jesc "$label")" "$show_ssid"
     exit 0
 fi
 
@@ -37,4 +42,4 @@ tooltip=$(printf 'SSID: %s\nIP: %s\nNetmask: %s\nDNS: %s\nMAC: %s' \
     "$(jesc "${mac:--}")")
 tooltip=${tooltip//$'\n'/\\n}   # literal \n so the JSON stays on one line
 
-printf '{"text": "%s", "tooltip": "%s"}\n' "$(jesc "$label")" "$tooltip"
+printf '{"text": "%s", "showSsid": %s, "tooltip": "%s"}\n' "$(jesc "$label")" "$show_ssid" "$tooltip"

@@ -245,7 +245,7 @@ PopupWindow {
         onTriggered: root.now = new Date()
     }
 
-    // clock-panel.sh prints "<uptime-secs>|<City>\tHH:MM:SS\t<delta>\t<abbrev>|…"
+    // clock-panel.sh prints "<uptime-secs>|<CityCode>\tHH:MM:SS\t<delta>\t<abbrev>|…"
     // on a single line, so SplitParser hands the whole thing over at once.
     Poll {
         id: clockPoll
@@ -289,6 +289,39 @@ PopupWindow {
     readonly property var booted: root.upSecs > 0
         ? new Date(root.now.getTime() - root.upSecs * 1000)
         : null
+
+    // ---------------- date helpers ----------------
+
+    /// ISO 8601 week number (the "calendar week"): week 1 is the week that
+    /// contains the first Thursday, and weeks run Monday to Sunday. Qt's
+    /// formatDateTime has no token for it — the date line was rendering the
+    /// literal "ww" — so the number is computed here.
+    function weekNumber(d) {
+        const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+        const dow = t.getUTCDay() || 7
+        t.setUTCDate(t.getUTCDate() + 4 - dow)
+        const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1))
+        return Math.ceil((((t - yearStart) / 86400000) + 1) / 7)
+    }
+
+    /// The 8 moon phases, glyph only. A local estimate, not an almanac:
+    /// days since a known new moon (2000-01-06 18:14 UTC) modulo the mean
+    /// synodic month (29.53 d), split into 8 slices. Right to within hours
+    /// of a phase boundary — enough to name today's phase, not to plan an
+    /// eclipse watch. The glyphs are the Weather Icons moon set in the
+    /// bundled Nerd Font (verified present in the font file).
+    function moonPhase(d) {
+        const synodic = 29.530588853
+        const knownNewMoon = Date.UTC(2000, 0, 6, 18, 14)
+        let age = ((d.getTime() - knownNewMoon) / 86400000) % synodic
+        if (age < 0) { age += synodic }
+        const slice = Math.floor((age / synodic) * 8 + 0.5) % 8
+        const glyphs = [
+            "\uE38D", "\uE390", "\uE394", "\uE396",
+            "\uE39B", "\uE39D", "\uE3A2", "\uE3A4"
+        ]
+        return glyphs[slice]
+    }
 
     // ---------------- window / anchoring ----------------
 
@@ -378,22 +411,19 @@ PopupWindow {
         timerPanel.reset()
     }
 
-    // Material 3 "expressive spatial", which is a spring: most of the distance
-    // covered early, then a small overshoot and a settle. QML has no spring
-    // easing, so it is two segments — out to 1.04, then back to 1.
+    // One curve, both directions. The fly-in is the fly-out played backwards:
+    // OutQuart over 200 ms, which is exactly the time-reverse of the InQuart
+    // 200 ms below. The panel therefore looks the same going up as coming down
+    // — the same motion, reversed — instead of opening on a springy overshoot
+    // that the close never had, which read as the panel being *placed* rather
+    // than *drawn out of the pill*.
     SequentialAnimation {
         id: openAnim
         NumberAnimation {
             target: root; property: "t"
-            from: 0; to: 1.04
-            duration: 210
+            from: 0; to: 1
+            duration: 200
             easing.type: Easing.OutQuart
-        }
-        NumberAnimation {
-            target: root; property: "t"
-            from: 1.04; to: 1
-            duration: 90
-            easing.type: Easing.InOutSine
         }
     }
 
@@ -880,11 +910,11 @@ PopupWindow {
                                 color: Tokyo.hairline
                             }
 
-                            // A plain Item, not a Column: the zone rows are
-                            // RowLayouts, and a positioner nested in a positioner
-                            // is exactly what leaves children stacked at y=0 when
+                            // A plain Item, not a Column: the rows are placed
+                            // by hand (fixed columns, see the delegate below),
+                            // because a positioner nested in a positioner is
+                            // exactly what leaves children stacked at y=0 when
                             // Qt polishes the outer one first (see TimerCreator.qml).
-                            // The rows are placed by hand instead.
                             Item {
                                 id: zonesArea
                                 anchors {
@@ -911,32 +941,32 @@ PopupWindow {
                                         height: zonesArea.rowH
                                         y: index * zonesArea.rowH
 
+                                        // Fixed columns, driven from the left, so the abbreviation column
+                                        // falls under itself on every row. The old
+                                        // layout anchored the abbrev to the delta's
+                                        // *implicit* width, and "same" (4 glyphs) is
+                                        // 6 logical px wider than "+1d" (3), so a zone
+                                        // on another calendar day had its abbreviation
+                                        // one notch to the right of the others.
                                         Text {
                                             id: city
                                             anchors {
-                                                left: parent.left; right: abbrev.left
+                                                left: parent.left
                                                 verticalCenter: parent.verticalCenter
-                                                rightMargin: 8
                                             }
+                                            width: 32
                                             text: zoneRow.zone.label
                                             color: Tokyo.trayGlyph
                                             font { family: Tokyo.fontFamily; pixelSize: 11 }
                                             elide: Text.ElideRight
                                         }
-                                        // A one-way chain of anchors from the right
-                                        // edge inwards — abbrev and delta take their
-                                        // own implicit widths. Having the middle two
-                                        // stretch between their neighbours on both
-                                        // sides is an anchor loop, which Qt resolves
-                                        // by dropping an edge and leaving the columns
-                                        // to jitter.
                                         Text {
                                             id: abbrev
                                             anchors {
-                                                right: delta.left
+                                                left: city.right; leftMargin: 8
                                                 verticalCenter: parent.verticalCenter
-                                                rightMargin: 8
                                             }
+                                            width: 24
                                             text: zoneRow.zone.abbrev
                                             color: Tokyo.dim
                                             font { family: Tokyo.fontFamily; pixelSize: 9 }
@@ -944,17 +974,21 @@ PopupWindow {
                                         // Accented only when that zone is on another
                                         // calendar day, which is the entire point of
                                         // the column: "is it tomorrow over there?"
+                                        // Right-aligned in a fixed slot so "same" and
+                                        // "+1d" share a right edge and the columns on
+                                        // either side of it never move.
                                         Text {
                                             id: delta
                                             anchors {
-                                                right: zoneClock.left
+                                                left: abbrev.right; leftMargin: 8
                                                 verticalCenter: parent.verticalCenter
-                                                rightMargin: 8
                                             }
+                                            width: 30
                                             text: zoneRow.zone.delta === "0" ? "same" : zoneRow.zone.delta + "d"
                                             color: zoneRow.ahead ? Tokyo.green
                                                 : (zoneRow.behind ? Tokyo.magenta : Tokyo.dim)
                                             font { family: Tokyo.fontFamily; pixelSize: 10 }
+                                            horizontalAlignment: Text.AlignRight
                                         }
                                         Text {
                                             id: zoneClock
@@ -1024,18 +1058,18 @@ PopupWindow {
                                 elide: Text.ElideRight
                             }
 
-                            // The machine-readable form, for pasting a date
-                            // somewhere: "2026-09-27" sorts and parses, "27 Sep" does
-                            // neither.
+                            // The one-line date, compact: the format asked for
+                            // (dd.mm.yyyy), the ISO calendar week number, and
+                            // the current moon phase (glyph only).
                             Text {
                                 id: isoDate
                                 anchors {
                                     left: parent.left; right: parent.right
                                     top: fullDate.bottom; topMargin: 3
                                 }
-                                text: Qt.formatDateTime(root.now, "yyyy-MM-dd")
-                                    + "  ·  week " + Qt.formatDateTime(root.now, "ww")
-                                    + "  ·  day " + Qt.formatDateTime(root.now, "ddd")
+                                text: Qt.formatDateTime(root.now, "dd.MM.yyyy")
+                                    + "  ·  week " + root.weekNumber(root.now)
+                                    + "  ·  " + root.moonPhase(root.now)
                                 color: Tokyo.trayGlyph
                                 font { family: Tokyo.fontFamily; pixelSize: 10 }
                                 elide: Text.ElideRight

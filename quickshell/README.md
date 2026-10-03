@@ -21,7 +21,7 @@ Notable contents of that one directory:
 
 | Path (relative to `quickshell/.config/quickshell/tokyonight/`) | Contents |
 | --- | --- |
-| `*.qml` (29 files) | The shell itself: `shell.qml` is the entry point, `Tokyo.qml` holds shared singletons and config, the rest are bar modules and flyout panels. |
+| `*.qml` (37 files) | The shell itself: `shell.qml` is the entry point, `Tokyo.qml` holds shared singletons and config, the rest are bar modules and flyout panels. |
 | `assets/` | `timer-done.wav`, the chime played when the timer finishes. |
 | `scripts/` | Poller and action helpers (`.sh`) invoked from QML, plus the generator `make-timer-icon.py` and the compiled `audio-popup` binary. |
 | `tests/` | `test-network-monitor.sh`, a self-check for the network monitor poller. |
@@ -34,6 +34,14 @@ Script notes:
   root. The binary is a build artifact and is not mirrored here; build that
   crate and copy `target/release/audio-popup` to `scripts/audio-popup` to
   install it.
+- `AGENTS.md` and `scripts/check-reload.sh` are mirrored from the live tree.
+  The script is the only reliable way to confirm a `.qml` edit actually loaded:
+  a failed reload leaves the old bar on screen, so the display always looks
+  fine, and `quickshell log | grep "Configuration Loaded"` replays the whole
+  journal and matches stale lines.
+- `Sys.qml` replaced the separate `Cpu.qml`, `Gpu.qml` and `Mem.qml` pills with
+  one, and `Net.qml` covers what `Wifi.qml` and `Ethernet.qml` used to. Those
+  five files were removed from the mirror rather than left as dead modules.
 - `scripts/make-timer-icon.py` renders `assets/timer-done.png`, the image
   `TimerState.qml` passes to the timer alert with `-i`. `assets/timer-done.wav`
   has its own generator, the `timer-sound/` cargo project; both assets are

@@ -30,7 +30,7 @@ Item {
     // Width = the pill row (its own left margin is 0 — the bar's edgeGap takes
     // over the spacer role, so the total border→first-pill distance is exactly
     // Tokyo.edgeGap). This also removes the old wsPad*2 dead space: the next
-    // module (cava) sits one normal pill gap (12px) from the counter.
+    // module (the tray) sits one normal pill gap (12px) from the counter.
     implicitWidth: wsRow.implicitWidth + wsRow.rowLeftMargin
 
     // The HyprlandMonitor that corresponds to this bar's screen

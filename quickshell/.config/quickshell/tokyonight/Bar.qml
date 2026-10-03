@@ -3,9 +3,9 @@
 //   window#waybar : height 34, bg rgba(30,32,48,0.9) — rendered transparent
 //                   here (no background / border band): the pills float over
 //                   the wallpaper, everything between them is see-through.
-//   layout        : left  = workspaces | cava | tray
+//   layout        : left  = workspaces | audio | tray
 //                   center= clock (time over date, click → ClockFlyout)
-//                   right = wifi | ethernet | audio | gpu | cpu | ram | updates
+//                   right = network | sys (gpu+cpu+ram) | updates
 //   module pills  : radius 8, margin 4px 3px (26px tall, 3px from each edge)
 //   pill gap      : 12px = 6px bar spacing + 3px margins each side (GTK semantics)
 import QtQuick
@@ -18,6 +18,8 @@ Variants {
     property var networkMonitor: null
     /// shared Brightness service (shell.qml) — DDC/CI per-monitor luminance
     property var brightness: null
+    /// shared NotificationStore (shell.qml) — the daemon + the centre's history
+    property var notifications: null
 
     model: Quickshell.screens
 
@@ -61,6 +63,50 @@ Variants {
         // clicked pill.
         ClockFlyout { id: clockFlyout }
 
+        // ---------- sys flyout ----------
+        // Clicking the combined gpu/cpu/ram pill opens this: one tachometer
+        // per stat. One per window, so it opens on the screen the click
+        // happened on.
+        SysFlyout { id: sysFlyout }
+
+        // ---------- settings flyout ----------
+        // The combined net+power pill's menu: wi-fi and bluetooth as quick
+        // tiles with their device lists, the connection stats behind ADVANCED,
+        // and the three power actions. One per window, so it opens on the
+        // screen the click happened on.
+        SettingsFlyout { id: settingsFlyout }
+
+        // ---------- notification centre + toasts ----------
+        // The centre is one per window, anchored to the clicked bell. The list
+        // it shows is shared (shell.qml's NotificationStore), so every monitor
+        // shows the same history.
+        NotificationCenter {
+            id: notificationCenter
+            store: barRoot.notifications
+        }
+
+        // The toasts have no pill to hang off, and Quickshell 0.3.1's
+        // PopupWindow can only place itself against an anchor item, so this is
+        // the marker they aim at: zero-sized, in the bar's top-right corner,
+        // clear of the bar itself. Its own size is never drawn.
+        Item {
+            id: toastAnchor
+            anchors {
+                top: parent.top; right: parent.right
+                topMargin: Tokyo.barHeight + 8; rightMargin: Tokyo.edgeGap + 3
+            }
+            width: 0
+            height: 0
+        }
+
+        // One per window so a toast lands on the monitor you are looking at.
+        // Only the one on the focused monitor accepts anything — see Toast.qml.
+        Toast {
+            id: toast
+            store: barRoot.notifications
+            anchorItem: toastAnchor
+        }
+
         // ---------- left ----------
         RowLayout {
             id: leftBox
@@ -77,8 +123,11 @@ Variants {
                 flyoutHost: brightnessFlyout
                 Layout.alignment: Qt.AlignVCenter
             }
-            Cava {
+            // Audio lives on the left: volume is a control, not a readout, and
+            // the right end of the bar is now all monitor-and-link state.
+            Audio {
                 tooltipHost: tip
+                flyoutHost: audioFlyout
                 Layout.alignment: Qt.AlignVCenter
             }
             Tray {
@@ -131,35 +180,31 @@ Variants {
             anchors { right: parent.right; rightMargin: Tokyo.edgeGap; verticalCenter: parent.verticalCenter; verticalCenterOffset: Tokyo.barShiftV }
             spacing: Tokyo.pillGap
 
-            Wifi {
+            Sys {
                 tooltipHost: tip
-                networkMonitor: barRoot.networkMonitor
-                Layout.alignment: Qt.AlignVCenter
-            }
-            Ethernet {
-                tooltipHost: tip
-                networkMonitor: barRoot.networkMonitor
-                Layout.alignment: Qt.AlignVCenter
-            }
-            Audio {
-                tooltipHost: tip
-                flyoutHost: audioFlyout
-                Layout.alignment: Qt.AlignVCenter
-            }
-            Gpu {
-                tooltipHost: tip
-                Layout.alignment: Qt.AlignVCenter
-            }
-            Cpu {
-                tooltipHost: tip
-                Layout.alignment: Qt.AlignVCenter
-            }
-            Mem {
-                tooltipHost: tip
+                flyoutHost: sysFlyout
                 Layout.alignment: Qt.AlignVCenter
             }
             Updates {
                 tooltipHost: tip
+                Layout.alignment: Qt.AlignVCenter
+            }
+            // Beside cachy-updates on purpose: "there are updates" and
+            // "something wants you" are both things that arrived while you were
+            // looking at something else, and reading them off two adjacent
+            // pills is one glance rather than two.
+            NotificationBell {
+                store: barRoot.notifications
+                flyoutHost: notificationCenter
+                tooltipHost: tip
+                Layout.alignment: Qt.AlignVCenter
+            }
+            // The net icons and the power glyph are one pill now: the links the
+            // machine is actually on sit next to the switch that changes them.
+            // Last on the right, so the power glyph is against the screen edge.
+            Settings {
+                networkMonitor: barRoot.networkMonitor
+                flyoutHost: settingsFlyout
                 Layout.alignment: Qt.AlignVCenter
             }
         }

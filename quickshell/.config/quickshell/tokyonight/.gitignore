@@ -1,0 +1,6 @@
+# quickshell fills this in with machine-specific paths (buildDir = live instance id)
+.qmlls.ini
+
+# python bytecode from importing a script for debugging
+__pycache__/
+*.pyc

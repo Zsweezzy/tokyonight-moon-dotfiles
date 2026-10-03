@@ -338,16 +338,23 @@ Rectangle {
                         }
                         onExited: root.cancelTooltip()
                         onClicked: m => {
-                            // right-click: the app's own menu (Library/Exit/etc.)
-                            if (m.button === Qt.RightButton && sniCell.item.hasMenu) {
+                            // Either button: the app's own menu (Library/Exit/etc.)
+                            // when it has one. Right-click is the waybar behaviour;
+                            // left-click opening the same menu means the options are
+                            // one button away on whichever hand is on the mouse.
+                            if (sniCell.item.hasMenu) {
                                 root.showTrayMenu(sniCell.item, sniCell)
                                 return
                             }
-                            // left-click: if this icon covers a window hidden in
-                            // the tray, restore that window; otherwise activate.
-                            const covered = root._coveredTrayWindow(sniCell.item)
-                            if (covered !== null) root.restoreWindow(covered)
-                            else sniCell.item.activate()
+                            // No menu to show: left-click keeps what it always did
+                            // — restore the window this icon is standing in for, or
+                            // activate the app. Right-click on a menu-less icon has
+                            // nothing to do and still does nothing.
+                            if (m.button === Qt.LeftButton) {
+                                const covered = root._coveredTrayWindow(sniCell.item)
+                                if (covered !== null) root.restoreWindow(covered)
+                                else sniCell.item.activate()
+                            }
                         }
                     }
                 }

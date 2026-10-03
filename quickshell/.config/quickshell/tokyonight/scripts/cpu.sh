@@ -7,7 +7,8 @@
 # the last line. Fields are pipe-delimited:
 #   1: pill text "\uf2db N%"
 #   2: tooltip headline "CPU: N%"
-#   3..: per-core grid rows, 3 columns each ("P01 12%   E01 03%   E02 00%")
+#   3: current clock "4.50 GHz"  (Sys.qml's tachometer reads this one)
+#   4..: per-core grid rows, 3 columns each ("P01 12%   E01 03%   E02 00%")
 #   last: legend explaining the P/E labels
 set -euo pipefail
 
@@ -97,12 +98,18 @@ for ((i = 0; i < ${#pcts[@]}; i++)); do
     labels[$i]=$lbl
 done
 
+# ---------------- current clock ----------------
+# Mean of the per-core MHz lines: a boost clock is per core, so the mean is
+# what the package is running at right now — which is the number the CPU dial
+# puts in its hole (the ring is the utilization above).
+ghz=$(awk '/^cpu MHz/ { s += $4; n++ } END { if (n > 0) printf "%.2f", s / n / 1000; else print "0.00" }' /proc/cpuinfo)
+
 # ---------------- output (single line, pipe-delimited, no trailing newline) ----------------
 # Tooltip grid: 8 rows x 3 columns, "1 P-core + 2 E-cores" per row:
 #   row i: P{01+i}  E{1+2i}  E{2+2i}  for i = 0..7
 # Cpu layout (7950X3D): cpu0-7 = P01-P08 (V-Cache CCD), cpu8-15 = E01-E08,
 # cpu24-31 = E09-E16 (std CCD); cpu16-23 are the P cores' SMT twins (hidden).
-printf '\uf2db %d%%|CPU: %d%%' "$pct" "$pct"
+printf '\uf2db %d%%|CPU: %d%%|%s GHz' "$pct" "$pct" "$ghz"
 for ((i = 0; i < 8; i++)); do
     printf -v cell1 '%s %2d%%' "${labels[$i]}"        "${pcts[$i]}"
     printf -v cell2 '%s %2d%%' "${labels[$((i + 8))]}"  "${pcts[$((i + 8))]}"

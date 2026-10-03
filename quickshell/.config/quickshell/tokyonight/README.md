@@ -40,7 +40,7 @@ Launched at session start by `hyprland.lua` line 66
 | custom/updates         | Updates       | `scripts/cachy-updates.sh`       |
 | tray (merged into OpenApps) | OpenApps | Quickshell.Services.SystemTray + `special:tray` |
 | (no waybar equivalent)  | Brightness    | `scripts/brightness.sh` (ddcutil, DDC/CI VCP 0x10) |
-| (no waybar equivalent)  | ClockFlyout   | `TimerState.qml` + `scripts/timer-alert.sh` |
+| (no waybar equivalent)  | ClockFlyout   | `TimerState.qml` + `pw-play` (`assets/timer-done.wav`) |
 
 The bar's centre is **one** pill now, not four. `ClockDate.qml`, `ClockTime.qml`,
 `Uptime.qml` and `TimerPill.qml` are gone; what they showed lives in
@@ -597,8 +597,8 @@ it is two segments — `0 → 1.04` over 210 ms `OutQuart`, then `1.04 → 1` ov
 
   | block | |
   |---|---|
-  | **TIME** (blue) | local `HH:mm:ss` at 28 px, a rule, then New York / Los Angeles / Tokyo with day delta, zone abbreviation and clock |
-  | **DATE** (yellow) | weekday at 24 px, `27 September 2026`, and the machine-readable `2026-09-27 · week 39 · day Sat` |
+  | **TIME** (blue) | local `HH:mm:ss` at 28 px, a rule, then the 3-letter codes NYC / LAX / TYO with day delta, zone abbreviation and clock |
+  | **DATE** (yellow) | weekday at 24 px, a full `dd MMMM yyyy` line, and a compact `dd.MM.yyyy · week NN · <moon glyph>` line (the date asked for, the ISO 8601 calendar-week number — Qt has no token for it, so it is computed — and the current moon phase, glyph only, Weather Icons set) |
   | **UPTIME** (teal) | `3d 04h 12m` at 28 px, boot timestamp, and how many full days |
 
   It started as a 2×2 grid of four cells. Four cells meant four titles, four
@@ -726,26 +726,36 @@ it is two segments — `0 → 1.04` over 210 ms `OutQuart`, then `1.04 → 1` ov
   measured off the clock pane's font metrics, and the zone count is data — so a
   literal would be wrong the moment either changed, and wrong here means either a
   hole or rows running under the form.
-  Rows stay at 36 px rather than the retired window's 46: the space is filled
+  Rows stay at 38 px rather than the retired window's 46: the space is filled
   either way, and five rows show more timers than four. `TimerPanel.rowH` used
   to *declare* 46 while its one and only host passed 36 over the top, so the 46
   never took effect and the comment beside it described a value that was not
-  live — the default is 36 now and the host says nothing, so the number is
-  written down once. 36 is a ceiling rather than a preference: `capacity` is
-  `floor((227 + 8) / (36 + 8))` = 5, and 15 px of spare is all there is, so a
-  row could grow to 39 and no further before the count dropped to four.
+  live — the number lives in the panel now and the host says nothing, so it is
+  written down once. 38 is a ceiling rather than a preference: `capacity` is
+  `floor((227 + 8) / (38 + 8))` = 5, and five rows at 38 with the 8 px gaps
+  take 5 × 38 + 4 × 8 = 222 px, leaving 5 px of the cap's 227 spare (the 36
+  row kept 15), so a row could grow to 39 and no further before the count
+  dropped to four.
 
-  **What that ceiling buys, and what it does not.** A 36 px row carries the big
-  countdown, the "of mm:ss" line and the 3 px bar. Measured inside one row: the
-  big time's ink is 12.0 px and the small line's is 6.5 px — each one a count of
-  inked *device* rows, both ends included, halved, which is why they do not
-  subtract cleanly out of a y-range — the bar is 3 px, and there is
-  **1 logical px** between the small line's ink and the top of the bar.
-  That is tight, and it is not a cut — nothing on the row has `clip: true` and
-  nothing has `elide`, so nothing has ever truncated vertically. It is not
-  fixable by growing the row either, because 2 px of air costs nothing but 4 px
-  costs a whole row. So it stays, and is written down here as what it is:
-  tight, and by design.
+  **What that ceiling buys, and what it does not.** A 38 px row carries the big
+  countdown, the "of mm:ss" line and the 3 px bar. Round 3 measured the glyph
+  ink at 12.0 px (big time) and 6.5 px (small line) — inked *device* rows, both
+  ends included, halved — and the air between the small line's ink bottom and
+  the bar's top edge at 1 px, live. This round re-measured both ends of the
+  change on the same offscreen pipeline round 3 validated against live (row-0
+  template): at rowH 36 / offset −2 the ink bottom sits at row-local 30.0 and
+  the bar's top at 31.0 — **1 logical px**, matching the live reading exactly.
+  At rowH 38 / offset −4 the ink bottom measures 30.0 again and the bar's top
+  33.0 — **3 logical px**. An intermediate (38 / −2) render reads 31.0 / 33.0.
+  The bar's top is pure arithmetic (rowH − bottomMargin − bar height), so it
+  moved 31 → 33 with the taller row; the ink bottom followed that row down by
+  1 px and the offset −2 → −4 pulled the pixel back (30 → 31 → 30, all
+  measured), so the air grew by exactly the bar's 2 px. Naive centre
+  arithmetic — text centre −1 px, bar +2 px ⇒ air +3 px — would predict 4 px
+  here; the render reads 3 px, and 3 px is what this row claims, written down
+  as measured. The row cost 10 px of the old 15 spare — the deal the cap is
+  built to allow. None of this is a cut: nothing on the row has `clip: true`
+  and nothing has `elide`, so nothing has ever truncated vertically.
 
   **The overrun was horizontal, and it was one string.** The small line's column
   is 86.8 px wide in a 193.5 px row — the three buttons start 114 px in. Measured
@@ -785,7 +795,7 @@ it is two segments — `0 → 1.04` over 210 ms `OutQuart`, then `1.04 → 1` ov
   `TimeZone` QML type** (verified on 0.3.1 / Qt 6.11) and
   `toLocaleTimeString` silently *ignores* a `timeZone` option instead of failing
   — every city would show local time under its own name. The script prints
-  `<uptime-secs>|<City>\tHH:MM:SS\t<delta>\t<abbrev>|…` on one line, one `date`
+  `<uptime-secs>|<CityCode>\tHH:MM:SS\t<delta>\t<abbrev>|…` on one line, one `date`
   fork per zone, with the day delta from `year*366 + dayOfYear`. The poll is
   bound to `visible`, so a closed flyout forks nothing.
 - **No hover tooltip.** The old timezone tooltip is redundant now that the
@@ -955,8 +965,12 @@ Added after the waybar switchover, so it has no waybar counterpart.
   somewhere the pointer is not.
 
   The rules are all "playhead", not "length": the value is clamped into
-  `[0, totalMs]`, so **a drag can never change how long a timer is** — the
-  `+1` button is the only way to do that, and `nudge()` is its only caller
+  `[0, totalMs]`, so **a drag can never change how long a timer is**. The
+  precise box is the length control, and its rule is two-way: type anything up
+  to the timer's current total and it moves the playhead exactly like a drag,
+  type something longer and the timer becomes that long — capped at 30 min, the
+  shell's 1–30 range — playhead at the top of the new length. `+1` (`nudge()`)
+  still exists beside it for one-minute bumps
   (it accepts a negative delta; nothing sends one). Two consequences are worth
   knowing, because both are reachable without any drag at all:
 
@@ -974,10 +988,11 @@ Added after the waybar switchover, so it has no waybar counterpart.
   tick glyph stay green — those are the "done" signal, and the row stays on
   screen precisely because `+1` is the only way back from finished.
 
-  **Hovering the strip for 500 ms opens a precise-entry box** above the bar,
-  inside the row, so it cannot reach the row above. It is prefilled with the
-  time **remaining** — the number the pointer is about to move, not the total —
-  and **Enter commits it through `scrub`**. It accepts the same strings the
+  **Hovering the strip for one second opens a precise-entry box** above the
+  bar, inside the row, so it cannot reach the row above. It is prefilled with
+  the time **remaining** — the number the pointer is about to move, not the
+  total — and **Enter commits it through `retime`**, the two-way rule above.
+  It accepts the same strings the
   creator's box does (`25`, `25:30`, `1:00:00`, one to three digits per part,
   digits only) because both validate the raw string against the same regex
   first; `Number("")` is 0, so a split-then-parse would have let `::` through
@@ -1018,10 +1033,12 @@ Added after the waybar switchover, so it has no waybar counterpart.
 - **The flyout resets its form on close**, so a panel dismissed by an outside
   click never reopens with half-typed minutes still in the box. It closes any
   open precise-entry box at the same time.
-- **On completion**: `scripts/timer-alert.sh` plays `assets/timer-done.wav`
-  (generated by `scripts/make-timer-sound.py`, stdlib only; override with
-  `$TIMER_SOUND`) and a `notify-send` notification fires. Several timers landing
-  on the same 200 ms tick share one chime and one notification.
+- **On completion**: `TimerState.alert()` plays `assets/timer-done.wav`
+  (generated by `scripts/make-timer-sound.py`, stdlib only) straight through
+  `pw-play --volume=1.0` — no wrapper script — and a `notify-send` notification
+  fires with a bundled 256 px `assets/timer-done.png` (built by
+  `scripts/make-timer-icon.py`) as its icon. Several timers landing on the same
+  200 ms tick share one chime (a 700 ms throttle) and one notification.
 - **State lives in `TimerState.qml`**, a singleton, and is **in memory only** —
   a bar reload (any file save) or a restart drops all timers. Deadlines are
   wall-clock, so a suspend that overshoots fires the alert on wake.
@@ -1030,15 +1047,15 @@ Added after the waybar switchover, so it has no waybar counterpart.
   `TimerState` keeps a single `now` that every view reads — that is what stops
   the pill, the pane and the tooltip from drifting apart — and the 200 ms tick
   that refreshes it only runs while `timers.length > 0`. So `now` is a **display
-  cache, not a clock**, and it can be arbitrarily stale. `start()` was stamping
+  cache, not a clock**, and it can be arbitrarily stale. `start()` used to stamp
   `endsAt` off it, so the first `start()` after an empty list dated its deadline
   from a `now` frozen since the shell last had no timers: a 30-minute timer
-  started after ten idle minutes came back with twenty left. It reads
-  `Date.now()` now. Of the five functions that stamp `endsAt` it is the only
-  one that *had* to change — `scrub()` reads the real clock too, but it only
-  ever runs on a timer already in the list, and `togglePause`, `nudge` and
-  `pauseAll` all need a live timer to act on, which means the tick *is* running
-  and `now` is at most 200 ms old there, so they keep reading the cache.
+  started after ten idle minutes came back with twenty left. The rule now is
+  that **every deadline writer refreshes the cache first** — `start`, `scrub`,
+  `retime`, `togglePause`, `nudge` and `pauseAll` all run `now = Date.now()`
+  before stamping (`scrub()` also reads the real clock, so a long press cannot
+  carry a deadline backward by a cache that is 200 ms old). No deadline is ever
+  stamped from a cached `now`; the cache only serves readers.
 
 Quickshell/Qt traps this feature ran into, all noted in the source:
 
@@ -1051,12 +1068,14 @@ Quickshell/Qt traps this feature ran into, all noted in the source:
 - A **positioner can be polished before its children exist** and never polished
   again, so a `Column`/`GridLayout` here left every child stacked at y=0 and the
   panel half a block too short. The panel body, the creator block, and the
-  flyout's TIME block (zone rows are `RowLayout`s) all place their children with
-  anchors or by hand instead of nesting positioners.
+  flyout's TIME block (whose zone rows are plain `Item`s in fixed columns, not
+  a positioner) all place their children with anchors or by hand instead of
+  nesting positioners.
 - Two items anchored **to each other in a cycle** make Qt drop an edge and leave
   the columns to jitter — it logs "Possible anchor loop detected on horizontal
-  anchor" and carries on. The zone rows are a one-way chain inward from the
-  right edge.
+  anchor" and carries on. The zone rows used to be a one-way chain inward from
+  the right edge, so the abbreviation column rode on the delta's width; they are
+  now fixed columns driven from the left.
 - An **anchor bound to a conditional, or to a derived property of the parent,
   keeps the value it was first given**: the rule above the creator stayed on its
   idle value forever, so the panel never grew for its rows. The rows and the

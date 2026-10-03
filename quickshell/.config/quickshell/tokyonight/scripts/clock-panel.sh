@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # clock-panel.sh — one shot, one line: what ClockFlyout's clock quadrants need.
 #
-#   <uptime-secs>|<City><TAB>HH:MM:SS<TAB><delta><TAB><abbrev>|(…)
+#   <uptime-secs>|<CityCode><TAB>HH:MM:SS<TAB><delta><TAB><abbrev>|(…)
 #
 # `delta` is the day difference against the local zone ("0", "+1", "-1"), which
 # is what makes a foreign clock readable at a glance. `abbrev` is the zone's own
@@ -21,10 +21,12 @@
 set -euo pipefail
 
 # "IANA zone:label shown in the flyout" — edit this list to change the cities.
+# The label is the city's 3-letter code (IATA-style), which is all the zone rows
+# show; the abbreviations and deltas come from the live TZ data below.
 ZONES=(
-    "America/New_York:New York"
-    "America/Los_Angeles:Los Angeles"
-    "Asia/Tokyo:Tokyo"
+    "America/New_York:NYC"
+    "America/Los_Angeles:LAX"
+    "Asia/Tokyo:TYO"
 )
 
 TAB=$'\t'

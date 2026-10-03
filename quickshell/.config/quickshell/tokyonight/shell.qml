@@ -19,8 +19,15 @@ ShellRoot {
     // hyprland.lua) are gone; the clock flyout's TIMERS pane is the only host of
     // `TimerPanel` now, so the list it can show is the list there is.
 
+    // The notification daemon and the history behind the centre. One for the
+    // whole shell: `NotificationServer` claims org.freedesktop.Notifications, and
+    // a second claim from another bar window's copy would simply fail, so the
+    // server and the list it fills have to be the same object everywhere.
+    NotificationStore { id: notificationStore }
+
     Bar {
         networkMonitor: networkMonitor
         brightness: brightness
+        notifications: notificationStore
     }
 }

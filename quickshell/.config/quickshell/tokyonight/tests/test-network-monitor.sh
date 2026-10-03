@@ -129,12 +129,13 @@ if grep -q '192\.168\.178\.1' "$TMP/ping.log"; then
     exit 1
 fi
 
-if ! grep -q 'hasValue(adapter.dns)' "$ROOT/Ethernet.qml" || ! grep -q 'hasValue(adapter.mac)' "$ROOT/Ethernet.qml"; then
-    printf 'optional DNS/MAC filtering is missing from Ethernet.qml\n' >&2
+if ! grep -q 'hasValue(adapter.dns)' "$ROOT/Settings.qml" || ! grep -q 'hasValue(adapter.mac)' "$ROOT/Settings.qml"; then
+    printf 'optional DNS/MAC filtering is missing from Settings.qml\n' >&2
     exit 1
 fi
 
-for qml in "$ROOT/Wifi.qml" "$ROOT/Ethernet.qml"; do
+# One widget now (Settings.qml), so one file to hold both links' blocks.
+for qml in "$ROOT/Settings.qml"; do
     if grep -q 'Router ping:' "$qml"; then
         printf 'router ping line still present in %s\n' "$qml" >&2
         exit 1
