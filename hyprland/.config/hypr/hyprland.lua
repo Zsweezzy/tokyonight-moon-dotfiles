@@ -711,17 +711,7 @@ hl.window_rule({
 	float = true,
 })
 
--- Open every new application window on the main center monitor.
-hl.window_rule({
-	name = "open-on-main-monitor",
-	match = { class = ".*" },
-	monitor = "DP-1",
-})
-
--- Steam games are fullscreen on the main panel, workspace 10. Must come AFTER
--- the catch-all above: windowrules match top-to-bottom and the first match
--- wins, so the `class = ".*"` rule would otherwise consume these windows and
--- this one would never fire.
+-- Steam games are fullscreen on the main panel, workspace 10.
 --
 -- The monitor is keyed by NAME, not id. Monitor ids are enum-order and shift
 -- across reboots (id 1 currently resolves to DP-2, a different panel), so a
