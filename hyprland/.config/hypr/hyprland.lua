@@ -334,9 +334,12 @@ hl.config({
 		kb_options = "",
 		kb_rules = "",
 
-		-- 0 on purpose: no cursor-moving bind exists in this config, so following
-		-- the pointer only made SUPER+arrow move focus away from the mouse.
-		follow_mouse = 0,
+		-- 1: focus follows the pointer. There is still no cursor-moving bind in
+		-- this config (`hyprctl binds` has zero `movecursor` dispatchers), so
+		-- SUPER+arrow moves focus from the focused window rather than from
+		-- wherever the pointer happens to be. Steam games opt out per-window via
+		-- `no_follow_mouse` in `steam-game-fullscreen`; read that rule with this.
+		follow_mouse = 1,
 
 		-- Pointer settings mirroring KDE (kcminputrc):
 		--   PointerAcceleration=-0.400  -> libinput pointer speed -0.4
@@ -723,12 +726,19 @@ hl.window_rule({
 -- The monitor is keyed by NAME, not id. Monitor ids are enum-order and shift
 -- across reboots (id 1 currently resolves to DP-2, a different panel), so a
 -- numeric `monitor = 1` lands games on the wrong screen unpredictably.
+--
+-- `no_follow_mouse` opts the game out of `input.follow_mouse`. A fullscreen
+-- game captures the pointer, so any mouse move Hyprland reads over the game
+-- surface would hand focus away from it and the in-game cursor sticks where it
+-- was captured. The opt-out only does anything while `follow_mouse` is non-zero,
+-- so the two settings are coupled and must be read together.
 hl.window_rule({
 	name = "steam-game-fullscreen",
 	match = { class = "^steam_app_\\d+$" },
 	fullscreen = true,
 	monitor = "DP-1",
 	workspace = 10,
+	no_follow_mouse = true,
 })
 
 -- Workspace 10 is the Steam-games workspace, and everything on it is
