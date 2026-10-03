@@ -92,6 +92,14 @@ hl.on("hyprland.start", function()
 	-- guaranteed to be on PATH, the same reason HYPR_SCRATCH is absolute.
 	hl.exec_cmd("/home/maxii/.local/bin/neru launch")
 	hl.exec_cmd("/usr/bin/opendeck --hide") -- OpenDeck stream controllers; start to tray, no UI on launch
+	-- ponytail: workaround, Hyprland 0.56.2 executes this config file twice at
+	-- startup, so every hl.bind lands in the bind list twice and one SUPER+Q
+	-- ran kitty twice (the keybind manager fires every matching bind). A reload
+	-- rebuilds the list from a fresh lua state in a single pass and does not
+	-- re-fire hyprland.start, so autostart stays single. Delete this once
+	-- upstream stops loading the config twice. sleep 2 so the reload lands
+	-- after startup monitor setup.
+	hl.exec_cmd("sleep 2 && hyprctl reload")
 end)
 
 -------------------------------
@@ -105,6 +113,10 @@ hl.env("XCURSOR_THEME", "Bibata-Modern-Classic")
 hl.env("XCURSOR_SIZE", "22")
 hl.env("HYPRCURSOR_THEME", "Bibata-Modern-Classic")
 hl.env("HYPRCURSOR_SIZE", "22")
+
+-- Terminal the Super+K launcher opens a command in. Same variable as the
+-- SUPER+Q bind, so changing `terminal` above moves both at once.
+hl.env("HYPR_LAUNCHER_TERMINAL", terminal)
 
 -- Render XWayland apps (ONLYOFFICE, Wine, etc.) at native 1x instead of
 -- texture-scaling them on the scaled 4K monitor. Text stays sharp; these apps
@@ -151,9 +163,9 @@ hl.config({
 
 		col = {
 			-- Tokyo Night Moon palette, same 45° colorflow gradient:
-			--   blue  #82aaff  (moon blue)  -> replaces #33ccff
-			--   green #9ece6a  (moon green) -> replaces #00ff99
-			active_border = { colors = { "rgba(82aaffee)", "rgba(9ece6aee)" }, angle = 45 },
+			--   blue   #82aaff  (moon blue)   -> replaces #33ccff
+			--   orange #ff9e64  (moon orange) -> replaces #9ece6a green
+			active_border = { colors = { "rgba(82aaffee)", "rgba(ff9e64ee)" }, angle = 45 },
 			inactive_border = "rgba(2f334daa)", -- moon bg_highlight #2f334d
 		},
 
@@ -226,6 +238,38 @@ hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 0.8, bezier = "al
 hl.animation({ leaf = "workspaces", enabled = true, speed = 1.94, bezier = "almostLinear", style = "fade" })
 hl.animation({ leaf = "workspacesIn", enabled = true, speed = 1.21, bezier = "almostLinear", style = "fade" })
 hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.94, bezier = "almostLinear", style = "fade" })
+-- Super+S is the magic scratchpad (SUPER toggles special:magic, SUPER+SHIFT+S
+-- sends a window into it). `specialWorkspace*` is unset in the tree above, so it
+-- inherits `workspaces` -- which is `fade` here, and a scratchpad that just
+-- materialises in place reads as a glitch rather than as an arrival.
+--
+-- `slidevert bottom` is the forced-side form: the second token picks the sign
+-- rather than the axis, so "bottom" means +Y coming in (fly up from the bottom
+-- edge) and the outgoing leg needs "top" to send the workspace back down and
+-- out of the same edge it arrived through. Token order is load-bearing --
+-- WorkspaceAnimationController reads args[1] for the side and the *last* token for
+-- the travel percentage -- so any percentage would have to go after the side, and
+-- the wiki's "slidevert 20% bottom" order silently drops it and slides sideways.
+--
+-- There is no switch for the fade. Hyprland hardcodes alpha 0->1 on the way in
+-- and 1->0 on the way out for every special workspace whatever the style is
+-- (WorkspaceAnimationController.cpp), and alpha shares the one animation config
+-- with the render offset, so style cannot decouple them. easeOutQuint is the
+-- lever: its output is ~0.9 by a third of the way through, so opacity is
+-- effectively full while the window is still travelling and the dissolve is not
+-- there to see. A spring is deliberately avoided -- its overshoot bounces the
+-- alpha as well as the offset.
+--
+-- Scale on top of the travel is not available here, and it is not a config miss.
+-- One leaf carries one style, and the special-workspace controller only animates
+-- two things for the whole workspace: alpha and a render offset (translation).
+-- There is no scale channel, and the per-window styles that do scale -- popin 85%,
+-- gnomed -- live on the window's own map/unmap controller, which a special
+-- workspace toggle never runs. So it is travel or scale, not both: this is the
+-- travel. For the scale instead, the scratchpad would have to stop being a
+-- special workspace and open as a normal window under `animation = popin 85%`.
+hl.animation({ leaf = "specialWorkspaceIn", enabled = true, speed = 4.79, bezier = "easeOutQuint", style = "slidevert bottom" })
+hl.animation({ leaf = "specialWorkspaceOut", enabled = true, speed = 1.49, bezier = "linear", style = "slidevert top" })
 hl.animation({ leaf = "zoomFactor", enabled = true, speed = 7, bezier = "quick" })
 
 -- Ref https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/
@@ -273,8 +317,8 @@ hl.config({
 
 hl.config({
 	misc = {
-		force_default_wallpaper = -1, -- Set to 0 or 1 to disable the anime mascot wallpapers
-		disable_hyprland_logo = false, -- If true disables the random hyprland logo / anime girl background. :(
+		force_default_wallpaper = 0, -- Set to 0 or 1 to disable the anime mascot wallpapers
+		disable_hyprland_logo = true, -- If true disables the random hyprland logo / anime girl background. :(
 	},
 })
 
@@ -342,19 +386,14 @@ describedBind(mainMod .. " + N", hl.dsp.exec_cmd(HYPR_SCRATCH), "Toggle scratchp
 -- SUPER + C = force-close the focused app (SIGKILL, no "you sure?" prompt).
 -- hl.dsp.window.kill() kills the process instead of sending a graceful close
 -- request, so apps can't show save/close confirmations.
-local closeWindowBind = describedBind(mainMod .. " + C", hl.dsp.window.kill(), "Kill focused window")
--- closeWindowBind:set_enabled(false)
+describedBind(mainMod .. " + C", hl.dsp.window.kill(), "Kill focused window")
 
 -- SUPER + SHIFT + C = graceful close: ASK the focused app to shut down, so an app
 -- that supports the request can prompt to save. An app that ignores it is killed
 -- by the compositor regardless — silently, since this bind says nothing.
 describedBind(mainMod .. " + SHIFT + C", hl.dsp.window.close(), "Close focused window")
 
-describedBind(
-	mainMod .. " + M",
-	hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch 'hl.dsp.exit()'"),
-	"Log out or exit Hyprland"
-)
+describedBind(mainMod .. " + M", hl.dsp.exit(), "Log out or exit Hyprland")
 describedBind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager), "Open file manager")
 describedBind(mainMod .. " + W", hl.dsp.exec_cmd("firefox"), "Open Firefox")
 -- SUPER + D = launch a second copy of the app in the focused window, on the
@@ -415,10 +454,10 @@ describedBind(mainMod .. " + down", hl.dsp.focus({ direction = "down" }), "Focus
 --   SUPER + SHIFT + arrows = move focused window in a direction
 --     (works even when fullscreen: script unfullscreens, moves, refullscreens)
 --   SUPER + ALT + arrows   = swap focused window with its neighbor
-describedBind(mainMod .. " + SHIFT + left", hl.dsp.exec_cmd("~/.config/hypr/scripts/move-fullscreen.sh left"), "Move focused window left")
-describedBind(mainMod .. " + SHIFT + right", hl.dsp.exec_cmd("~/.config/hypr/scripts/move-fullscreen.sh right"), "Move focused window right")
-describedBind(mainMod .. " + SHIFT + up", hl.dsp.exec_cmd("~/.config/hypr/scripts/move-fullscreen.sh up"), "Move focused window up")
-describedBind(mainMod .. " + SHIFT + down", hl.dsp.exec_cmd("~/.config/hypr/scripts/move-fullscreen.sh down"), "Move focused window down")
+describedBind(mainMod .. " + SHIFT + left", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh left"), "Move focused window left")
+describedBind(mainMod .. " + SHIFT + right", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh right"), "Move focused window right")
+describedBind(mainMod .. " + SHIFT + up", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh up"), "Move focused window up")
+describedBind(mainMod .. " + SHIFT + down", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh down"), "Move focused window down")
 describedBind(mainMod .. " + ALT + left", hl.dsp.window.swap({ direction = "left" }), "Swap focused window left")
 describedBind(mainMod .. " + ALT + right", hl.dsp.window.swap({ direction = "right" }), "Swap focused window right")
 describedBind(mainMod .. " + ALT + up", hl.dsp.window.swap({ direction = "up" }), "Swap focused window up")
@@ -427,11 +466,11 @@ describedBind(mainMod .. " + ALT + down", hl.dsp.window.swap({ direction = "down
 -- Screenshots with grim + slurp
 --   Print       = current active monitor only
 --   SHIFT+Print = region select, confined to the active monitor (edges act as snap boundaries)
-describedBind("print", hl.dsp.exec_cmd("mkdir -p ~/Pictures/Screenshots && f=~/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -o \"$(hyprctl activeworkspace -j | jq -r .monitor)\" - | tee \"$f\" | wl-copy && notify-send -a screenshot 'Screenshot saved (active monitor)' \"$(basename \"$f\")\""), "Take screenshot of active monitor")
-describedBind("SHIFT + print", hl.dsp.exec_cmd("mkdir -p ~/Pictures/Screenshots && f=~/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -g \"$(slurp -o \"$(hyprctl activeworkspace -j | jq -r .monitor)\")\" - | tee \"$f\" | wl-copy && notify-send -a screenshot 'Screenshot saved (region)' \"$(basename \"$f\")\""), "Take screenshot of selected region")
+describedBind("print", hl.dsp.exec_cmd("mkdir -p /home/maxii/Pictures/Screenshots && f=/home/maxii/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -o \"$(hyprctl activeworkspace -j | jq -r .monitor)\" - | tee \"$f\" | wl-copy && notify-send -a screenshot 'Screenshot saved (active monitor)' \"$(basename \"$f\")\""), "Take screenshot of active monitor")
+describedBind("SHIFT + print", hl.dsp.exec_cmd("mkdir -p /home/maxii/Pictures/Screenshots && f=/home/maxii/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -g \"$(slurp -o \"$(hyprctl activeworkspace -j | jq -r .monitor)\")\" - | tee \"$f\" | wl-copy && notify-send -a screenshot 'Screenshot saved (region)' \"$(basename \"$f\")\""), "Take screenshot of selected region")
 
 -- SUPER + Print = open the most recent screenshot with qView
-describedBind(mainMod .. " + print", hl.dsp.exec_cmd("latest=$(ls -t ~/Pictures/Screenshots/*.png 2>/dev/null | head -1); [ -n \"$latest\" ] && flatpak run com.interversehq.qView \"$latest\" || notify-send -u critical -a screenshot 'No screenshots yet'"), "Open latest screenshot")
+describedBind(mainMod .. " + print", hl.dsp.exec_cmd("latest=$(ls -t /home/maxii/Pictures/Screenshots/*.png 2>/dev/null | head -1); [ -n \"$latest\" ] && flatpak run com.interversehq.qView \"$latest\" || notify-send -u critical -a screenshot 'No screenshots yet'"), "Open latest screenshot")
 
 -- Switch workspaces with mainMod + [0-9]
 -- Send active window to a workspace without following it with mainMod + SHIFT + [0-9]
@@ -446,6 +485,26 @@ end
 -- Example special workspace (scratchpad)
 describedBind(mainMod .. " + S", hl.dsp.workspace.toggle_special("magic"), "Toggle magic workspace")
 describedBind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:magic" }), "Move focused window to magic workspace")
+
+-- The NZXT Lift Elite's two thumb buttons. Codes read off the raw evdev stream
+-- on /dev/input/event2 rather than guessed: 276 (BTN_EXTRA) is the front button,
+-- 275 (BTN_SIDE) the back one. Hyprland has no per-device binds, so these are
+-- global -- but no other attached mouse emits 275/276 (the GMMK trackball module
+-- declares them and never sends them).
+--
+-- The workspace chords reuse the dispatchers from the SUPER + [0-9] loop above:
+-- SUPER = switch, SUPER + SHIFT = send the window without following. Chords and
+-- bare buttons coexist; Hyprland matches binds on (modmask, key).
+describedBind("CTRL + mouse:276", hl.dsp.workspace.toggle_special("magic"), "Toggle magic workspace (mouse)")
+-- The "out" move has no keyboard equivalent: hl.window.move has no `previous`
+-- selector, but `monitor = "current"` resolves to the focused monitor's
+-- m_activeWorkspace, which stays the normal workspace sitting behind the
+-- scratchpad. Moving out of a special workspace also closes it.
+describedBind("CTRL + mouse:275", hl.dsp.window.move({ monitor = "current" }), "Send magic-workspace window back to the workspace behind it (mouse)")
+describedBind(mainMod .. " + mouse:275", hl.dsp.focus({ workspace = 1 }), "Focus workspace 1 (mouse)")
+describedBind(mainMod .. " + mouse:276", hl.dsp.focus({ workspace = 4 }), "Focus workspace 4 (mouse)")
+describedBind(mainMod .. " + SHIFT + mouse:275", hl.dsp.window.move({ workspace = 1, follow = false }), "Send focused window to workspace 1 (mouse)")
+describedBind(mainMod .. " + SHIFT + mouse:276", hl.dsp.window.move({ workspace = 4, follow = false }), "Send focused window to workspace 4 (mouse)")
 
 -- Scroll through existing workspaces with mainMod + scroll
 describedBind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "Focus next existing workspace")
@@ -547,14 +606,13 @@ describedBind("XF86AudioPrev", hl.dsp.exec_cmd("playerctl previous"), "Play prev
 
 -- Example window rules that are useful
 
-local suppressMaximizeRule = hl.window_rule({
+hl.window_rule({
 	-- Ignore maximize requests from all apps. You'll probably like this.
 	name = "suppress-maximize-events",
 	match = { class = ".*" },
 
 	suppress_event = "maximize",
 })
--- suppressMaximizeRule:set_enabled(false)
 
 hl.window_rule({
 	-- Fix some dragging issues with XWayland
@@ -653,4 +711,41 @@ hl.window_rule({
 	name = "open-on-main-monitor",
 	match = { class = ".*" },
 	monitor = "DP-1",
+})
+
+-- Steam notification toasts (friend online, achievements) must survive a
+-- fullscreen game on another workspace. Without this they silently vanish, and
+-- the cause is compositor-side, not Steam: the toasts are XWayland windows of
+-- class `steam` titled `notificationtoasts_<n>_desktop`, and Hyprland culls
+-- every window that is not "allowed over fullscreen"
+-- (Renderer.cpp, shouldRenderWindow). The policy that grants it
+-- (WindowFullscreenPolicy.cpp, effectiveAllowedOverFullscreen) allows only four
+-- cases: the fullscreen window itself, a *pinned* window, one explicitly
+-- permitted, or one grouped with the fullscreen window. A toast is none of
+-- those, so it gets dropped.
+--
+-- `pin` satisfies the policy in one move and also fixes the second half of the
+-- bug: pinned windows render on every workspace, so a toast raised while
+-- Steam itself sits on another workspace still appears over the game. That is
+-- the whole reason these were invisible with the game on ws4 and Steam on 1-3.
+--
+-- `float` is not optional. Pinning is ignored for tiled windows, so without it
+-- the pin silently does nothing.
+--
+-- `no_focus` because a notification must never steal focus from a running game;
+-- the toast still draws and still takes clicks.
+--
+-- Tradeoff: a pinned window renders on every connected monitor, so the toast
+-- appears in the corner of all three displays. That is the cost of not missing
+-- it, and it is why this is scoped by title to the toasts alone rather than
+-- pinning all of Steam.
+hl.window_rule({
+	name = "steam-toast-over-fullscreen",
+	match = {
+		class = "^steam$",
+		title = "^notificationtoasts_.*_desktop$",
+	},
+	float = true,
+	pin = true,
+	no_focus = true,
 })
