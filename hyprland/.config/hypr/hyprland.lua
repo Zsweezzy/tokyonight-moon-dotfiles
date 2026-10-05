@@ -594,22 +594,19 @@ describedBind(
 --
 -- The workspace chords reuse the dispatchers from the SUPER + [0-9] loop above:
 -- SUPER = switch, SUPER + SHIFT = send the window without following. Chords and
--- bare buttons coexist; Hyprland matches binds on (modmask, key).
--- The "out" move has no keyboard equivalent: hl.window.move has no `previous`
--- selector, but `monitor = "current"` resolves to the focused monitor's
--- m_activeWorkspace, which stays the normal workspace sitting behind the
--- scratchpad. Moving out of a special workspace also closes it.
-describedBind(mainMod .. " + mouse:275", hl.dsp.focus({ workspace = 10 }), "Focus workspace 1 (mouse)")
-describedBind(mainMod .. " + mouse:276", hl.dsp.focus({ workspace = 1 }), "Focus workspace 4 (mouse)")
+-- bare buttons coexist; Hyprland matches binds on (modmask, key). The buttons
+-- land on workspaces 10 and 1, matching keys 0 and 1.
+describedBind(mainMod .. " + mouse:275", hl.dsp.focus({ workspace = 10 }), "Focus workspace 10 (mouse)")
+describedBind(mainMod .. " + mouse:276", hl.dsp.focus({ workspace = 1 }), "Focus workspace 1 (mouse)")
 describedBind(
 	mainMod .. " + SHIFT + mouse:275",
 	hl.dsp.window.move({ workspace = 10, follow = false }),
-	"Send focused window to workspace 1 (mouse)"
+	"Send focused window to workspace 10 (mouse)"
 )
 describedBind(
 	mainMod .. " + SHIFT + mouse:276",
 	hl.dsp.window.move({ workspace = 1, follow = false }),
-	"Send focused window to workspace 4 (mouse)"
+	"Send focused window to workspace 1 (mouse)"
 )
 
 -- Scroll through existing workspaces with mainMod + scroll
