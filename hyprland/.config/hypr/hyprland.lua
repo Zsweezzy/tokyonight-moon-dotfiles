@@ -193,6 +193,8 @@ hl.config({
 			color = 0xee16161e, -- tokyo night moon bg_dark #16161e
 		},
 
+		
+
 		blur = {
 			enabled = true,
 			size = 3,
@@ -222,6 +224,22 @@ hl.curve("easy", { type = "spring", mass = 1, stiffness = 238.1191, dampening = 
 
 hl.animation({ leaf = "global", enabled = true, speed = 10, bezier = "default" })
 hl.animation({ leaf = "border", enabled = true, speed = 5.39, bezier = "easeOutQuint" })
+-- Continuously rotate the active border's gradient angle. The `border` leaf
+-- above only animates the colour *switch* speed; this is the spinning part.
+-- `style = "loop"` is what makes it rotate forever -- `once` (the default) only
+-- animates on a focus change.
+--
+-- Only gradients have an angle to rotate, so this applies to active_border
+-- (a blue->orange 45deg gradient) and leaves the solid inactive_border alone.
+-- `speed` is the DURATION in deciseconds, not a rate: 1 = 100ms per turn.
+-- So 2 = 200ms/turn (5 turns a second), 40 = 4s/turn. Bigger = slower,
+-- same as every other animation leaf.
+--
+-- ponytail: `loop` makes Hyprland render new frames at the full refresh rate
+-- even when nothing else moves -- that is DP-2's 240Hz, permanently, for
+-- battery. Drop to style = "once" if the rig gets hot or the laptop stops
+-- lasting as long.
+hl.animation({ leaf = "borderangle", enabled = true, speed = 40, bezier = "linear", style = "loop" })
 hl.animation({ leaf = "windows", enabled = true, speed = 4.79, spring = "easy" })
 hl.animation({ leaf = "windowsIn", enabled = true, speed = 4.1, spring = "easy", style = "popin 87%" })
 hl.animation({ leaf = "windowsOut", enabled = true, speed = 1.49, bezier = "linear", style = "popin 87%" })
@@ -268,7 +286,13 @@ hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.94, bezier = "a
 -- workspace toggle never runs. So it is travel or scale, not both: this is the
 -- travel. For the scale instead, the scratchpad would have to stop being a
 -- special workspace and open as a normal window under `animation = popin 85%`.
-hl.animation({ leaf = "specialWorkspaceIn", enabled = true, speed = 4.79, bezier = "easeOutQuint", style = "slidevert bottom" })
+hl.animation({
+	leaf = "specialWorkspaceIn",
+	enabled = true,
+	speed = 4.79,
+	bezier = "easeOutQuint",
+	style = "slidevert bottom",
+})
 hl.animation({ leaf = "specialWorkspaceOut", enabled = true, speed = 1.49, bezier = "linear", style = "slidevert top" })
 hl.animation({ leaf = "zoomFactor", enabled = true, speed = 7, bezier = "quick" })
 
@@ -385,7 +409,11 @@ end
 -- Example binds, see https://wiki.hypr.land/Configuring/Basics/Binds/ for more
 describedBind(mainMod .. " + Q", hl.dsp.exec_cmd(terminal), "Open terminal")
 -- SUPER + K = searchable Hyprland shortcuts and running-app switcher
-describedBind(mainMod .. " + K", hl.dsp.exec_cmd("/home/maxii/.local/bin/hypr-shortcut-launcher"), "Open shortcuts and apps launcher")
+describedBind(
+	mainMod .. " + K",
+	hl.dsp.exec_cmd("/home/maxii/.local/bin/hypr-shortcut-launcher"),
+	"Open shortcuts and apps launcher"
+)
 -- SUPER + N = floating iced scratchpad notepad (toggle)
 describedBind(mainMod .. " + N", hl.dsp.exec_cmd(HYPR_SCRATCH), "Toggle scratchpad notepad")
 -- SUPER + C = force-close the focused app (SIGKILL, no "you sure?" prompt).
@@ -407,7 +435,11 @@ describedBind(mainMod .. " + W", hl.dsp.exec_cmd("firefox"), "Open Firefox")
 -- Steam window survives the script is incidental to the guard it runs, which
 -- refuses whatever the host cannot resolve and knows nothing about Steam.
 describedBind(mainMod .. " + T", hl.dsp.exec_cmd("steam"), "Open Steam")
-describedBind(mainMod .. " + D", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/duplicate-window.sh"), "Duplicate focused window")
+describedBind(
+	mainMod .. " + D",
+	hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/duplicate-window.sh"),
+	"Duplicate focused window"
+)
 describedBind(mainMod .. " + SHIFT + V", hl.dsp.window.float({ action = "toggle" }), "Toggle focused window floating")
 -- SUPER on its own = the rofi app launcher, toggled: SUPER again closes it.
 -- `menu` (above) is the toggle wrapper, not the rofi command line: the wrapper
@@ -437,6 +469,23 @@ describedBind(
 	"Open application launcher",
 	{ release = true, allow_input_capture = true }
 )
+-- ALT + Tab = free the cursor from whatever is holding it.
+-- hl.dsp.release_input_capture ends a wlr-input-capture session, and the only
+-- things that create one are compositors-as-clients (Apollo/Steam Remote Play,
+-- RDP/VNC) -- so this chord is dead weight for a locally launched game like
+-- Detroit: Become Human, which traps the cursor through Wine's own fullscreen
+-- pointer clip instead, and nothing in Hyprland releases that except a focus
+-- change. See the note below on what to use for the game.
+--
+-- allow_input_capture is load-bearing, for the same reason it is on the rofi
+-- bind above: without it the bind is not dispatched while a client holds one.
+describedBind(
+	"ALT + tab",
+	hl.dsp.release_input_capture(),
+	"Free the mouse cursor from a window that captured it",
+	{ allow_input_capture = true }
+)
+
 -- Clipboard history (cliphist): SUPER + V opens history in rofi,
 -- picking an entry copies it back to the clipboard (paste with Ctrl+V / SUPER+V)
 describedBind(
@@ -459,10 +508,26 @@ describedBind(mainMod .. " + down", hl.dsp.focus({ direction = "down" }), "Focus
 --   SUPER + SHIFT + arrows = move focused window in a direction
 --     (works even when fullscreen: script unfullscreens, moves, refullscreens)
 --   SUPER + ALT + arrows   = swap focused window with its neighbor
-describedBind(mainMod .. " + SHIFT + left", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh left"), "Move focused window left")
-describedBind(mainMod .. " + SHIFT + right", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh right"), "Move focused window right")
-describedBind(mainMod .. " + SHIFT + up", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh up"), "Move focused window up")
-describedBind(mainMod .. " + SHIFT + down", hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh down"), "Move focused window down")
+describedBind(
+	mainMod .. " + SHIFT + left",
+	hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh left"),
+	"Move focused window left"
+)
+describedBind(
+	mainMod .. " + SHIFT + right",
+	hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh right"),
+	"Move focused window right"
+)
+describedBind(
+	mainMod .. " + SHIFT + up",
+	hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh up"),
+	"Move focused window up"
+)
+describedBind(
+	mainMod .. " + SHIFT + down",
+	hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/move-fullscreen.sh down"),
+	"Move focused window down"
+)
 describedBind(mainMod .. " + ALT + left", hl.dsp.window.swap({ direction = "left" }), "Swap focused window left")
 describedBind(mainMod .. " + ALT + right", hl.dsp.window.swap({ direction = "right" }), "Swap focused window right")
 describedBind(mainMod .. " + ALT + up", hl.dsp.window.swap({ direction = "up" }), "Swap focused window up")
@@ -471,11 +536,29 @@ describedBind(mainMod .. " + ALT + down", hl.dsp.window.swap({ direction = "down
 -- Screenshots with grim + slurp
 --   Print       = current active monitor only
 --   SHIFT+Print = region select, confined to the active monitor (edges act as snap boundaries)
-describedBind("print", hl.dsp.exec_cmd("mkdir -p /home/maxii/Pictures/Screenshots && f=/home/maxii/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -o \"$(hyprctl activeworkspace -j | jq -r .monitor)\" - | tee \"$f\" | wl-copy && notify-send -a screenshot 'Screenshot saved (active monitor)' \"$(basename \"$f\")\""), "Take screenshot of active monitor")
-describedBind("SHIFT + print", hl.dsp.exec_cmd("mkdir -p /home/maxii/Pictures/Screenshots && f=/home/maxii/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -g \"$(slurp -o \"$(hyprctl activeworkspace -j | jq -r .monitor)\")\" - | tee \"$f\" | wl-copy && notify-send -a screenshot 'Screenshot saved (region)' \"$(basename \"$f\")\""), "Take screenshot of selected region")
+describedBind(
+	"print",
+	hl.dsp.exec_cmd(
+		'mkdir -p /home/maxii/Pictures/Screenshots && f=/home/maxii/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -o "$(hyprctl activeworkspace -j | jq -r .monitor)" - | tee "$f" | wl-copy && notify-send -a screenshot \'Screenshot saved (active monitor)\' "$(basename "$f")"'
+	),
+	"Take screenshot of active monitor"
+)
+describedBind(
+	"SHIFT + print",
+	hl.dsp.exec_cmd(
+		'mkdir -p /home/maxii/Pictures/Screenshots && f=/home/maxii/Pictures/Screenshots/$(date +%F_%H-%M-%S).png && grim -g "$(slurp -o "$(hyprctl activeworkspace -j | jq -r .monitor)")" - | tee "$f" | wl-copy && notify-send -a screenshot \'Screenshot saved (region)\' "$(basename "$f")"'
+	),
+	"Take screenshot of selected region"
+)
 
 -- SUPER + Print = open the most recent screenshot with qView
-describedBind(mainMod .. " + print", hl.dsp.exec_cmd("latest=$(ls -t /home/maxii/Pictures/Screenshots/*.png 2>/dev/null | head -1); [ -n \"$latest\" ] && flatpak run com.interversehq.qView \"$latest\" || notify-send -u critical -a screenshot 'No screenshots yet'"), "Open latest screenshot")
+describedBind(
+	mainMod .. " + print",
+	hl.dsp.exec_cmd(
+		'latest=$(ls -t /home/maxii/Pictures/Screenshots/*.png 2>/dev/null | head -1); [ -n "$latest" ] && flatpak run com.interversehq.qView "$latest" || notify-send -u critical -a screenshot \'No screenshots yet\''
+	),
+	"Open latest screenshot"
+)
 
 -- Switch workspaces with mainMod + [0-9]
 -- Send active window to a workspace without following it with mainMod + SHIFT + [0-9]
@@ -483,13 +566,25 @@ describedBind(mainMod .. " + print", hl.dsp.exec_cmd("latest=$(ls -t /home/maxii
 for i = 1, 10 do
 	local key = i % 10 -- 10 maps to key 0
 	describedBind(mainMod .. " + " .. key, hl.dsp.focus({ workspace = i }), "Focus workspace " .. i)
-	describedBind(mainMod .. " + SHIFT + " .. key, hl.dsp.window.move({ workspace = i, follow = false }), "Send focused window to workspace " .. i)
-	describedBind(mainMod .. " + CTRL + " .. key, hl.dsp.window.move({ workspace = i }), "Move focused window to workspace " .. i .. " (follow)")
+	describedBind(
+		mainMod .. " + SHIFT + " .. key,
+		hl.dsp.window.move({ workspace = i, follow = false }),
+		"Send focused window to workspace " .. i
+	)
+	describedBind(
+		mainMod .. " + CTRL + " .. key,
+		hl.dsp.window.move({ workspace = i }),
+		"Move focused window to workspace " .. i .. " (follow)"
+	)
 end
 
 -- Example special workspace (scratchpad)
 describedBind(mainMod .. " + S", hl.dsp.workspace.toggle_special("magic"), "Toggle magic workspace")
-describedBind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "special:magic" }), "Move focused window to magic workspace")
+describedBind(
+	mainMod .. " + SHIFT + S",
+	hl.dsp.window.move({ workspace = "special:magic" }),
+	"Move focused window to magic workspace"
+)
 
 -- The NZXT Lift Elite's two thumb buttons. Codes read off the raw evdev stream
 -- on /dev/input/event2 rather than guessed: 276 (BTN_EXTRA) is the front button,
@@ -500,16 +595,22 @@ describedBind(mainMod .. " + SHIFT + S", hl.dsp.window.move({ workspace = "speci
 -- The workspace chords reuse the dispatchers from the SUPER + [0-9] loop above:
 -- SUPER = switch, SUPER + SHIFT = send the window without following. Chords and
 -- bare buttons coexist; Hyprland matches binds on (modmask, key).
-describedBind("CTRL + mouse:276", hl.dsp.workspace.toggle_special("magic"), "Toggle magic workspace (mouse)")
 -- The "out" move has no keyboard equivalent: hl.window.move has no `previous`
 -- selector, but `monitor = "current"` resolves to the focused monitor's
 -- m_activeWorkspace, which stays the normal workspace sitting behind the
 -- scratchpad. Moving out of a special workspace also closes it.
-describedBind("CTRL + mouse:275", hl.dsp.window.move({ monitor = "current" }), "Send magic-workspace window back to the workspace behind it (mouse)")
-describedBind(mainMod .. " + mouse:275", hl.dsp.focus({ workspace = 1 }), "Focus workspace 1 (mouse)")
-describedBind(mainMod .. " + mouse:276", hl.dsp.focus({ workspace = 4 }), "Focus workspace 4 (mouse)")
-describedBind(mainMod .. " + SHIFT + mouse:275", hl.dsp.window.move({ workspace = 1, follow = false }), "Send focused window to workspace 1 (mouse)")
-describedBind(mainMod .. " + SHIFT + mouse:276", hl.dsp.window.move({ workspace = 4, follow = false }), "Send focused window to workspace 4 (mouse)")
+describedBind(mainMod .. " + mouse:275", hl.dsp.focus({ workspace = 10 }), "Focus workspace 1 (mouse)")
+describedBind(mainMod .. " + mouse:276", hl.dsp.focus({ workspace = 1 }), "Focus workspace 4 (mouse)")
+describedBind(
+	mainMod .. " + SHIFT + mouse:275",
+	hl.dsp.window.move({ workspace = 10, follow = false }),
+	"Send focused window to workspace 1 (mouse)"
+)
+describedBind(
+	mainMod .. " + SHIFT + mouse:276",
+	hl.dsp.window.move({ workspace = 1, follow = false }),
+	"Send focused window to workspace 4 (mouse)"
+)
 
 -- Scroll through existing workspaces with mainMod + scroll
 describedBind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }), "Focus next existing workspace")
@@ -593,8 +694,18 @@ describedBind(
 	"Mute microphone",
 	{ locked = true, repeating = true }
 )
-describedBind("XF86MonBrightnessUp", hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%+"), "Increase screen brightness", { locked = true, repeating = true })
-describedBind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%-"), "Decrease screen brightness", { locked = true, repeating = true })
+describedBind(
+	"XF86MonBrightnessUp",
+	hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%+"),
+	"Increase screen brightness",
+	{ locked = true, repeating = true }
+)
+describedBind(
+	"XF86MonBrightnessDown",
+	hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%-"),
+	"Decrease screen brightness",
+	{ locked = true, repeating = true }
+)
 
 -- Requires playerctl
 describedBind("XF86AudioNext", hl.dsp.exec_cmd("playerctl next"), "Play next media track", { locked = true })
