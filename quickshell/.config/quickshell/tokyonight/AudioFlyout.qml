@@ -7,6 +7,8 @@
 //                    phone is connected. Pairing itself is done in the settings
 //                    flyout's bluetooth panel.
 //   Input devices    click a row → Pipewire.preferredDefaultAudioSource
+//                    the active input device also carries a volume slider
+//                    + mute, same as the active output device above
 //   Applications     per-playback-app volume slider + mute toggle
 //   Advanced         bottom drawer: the switch that lifts the app sliders to
 //                    150% instead of 100%
@@ -39,7 +41,12 @@ PopupWindow {
     readonly property real padV: 12
     readonly property int rowHeight: 36
 
-    implicitWidth: 360
+    // 392, not the 360 it was: the device rows gained a percentage readout, and
+    // at 360 the device name was left with 98px — enough for "USB Audio" and
+    // nothing else, so the longest names all elided to the same stub. The
+    // panel is anchored to the pill, not sized by the bar, so widening it
+    // costs nothing but the room it takes on screen.
+    implicitWidth: 392
     implicitHeight: box.height + root.gap
 
     // ---------------- lists ----------------
@@ -52,11 +59,18 @@ PopupWindow {
     // Inputs are `!isSink` audio nodes (alsa_input.* etc.). Duplex cards also
     // satisfy isSink, so keep them here only when they are the current default
     // source — otherwise they would never show up as input devices.
+    //
+    // The active source is kept unconditionally, `!n.audio` included. Quickshell
+    // builds a node's audio interface from an exact match on media.class, so a
+    // driver that names its source `Audio/Source/Virtual` (linux-soundboard)
+    // gets no interface at all — and dropping it for that reason hid the one
+    // mic you are actually recording from. WpAudio below still drives it.
     function inputDevicesList() {
         return Pipewire.nodes.values.filter(n => {
-            if (!n || !n.audio || n.isStream) return false
-            if (!n.isSink) return true
-            return n === Pipewire.defaultAudioSource
+            if (!n || n.isStream) return false
+            if (n === Pipewire.defaultAudioSource) return true
+            if (!n.audio) return false
+            return !n.isSink
         })
     }
     function appNodes(isSink) {
@@ -67,6 +81,146 @@ PopupWindow {
     readonly property var apps: root.appNodes(true)
     /// every node the flyout manages — kept ref'd/bound by the tracker below
     readonly property var trackedNodes: root.outputDevices.concat(root.inputDevices, root.apps)
+
+    // ---------------- devices with no native audio interface ----------------
+    /// Volume/mute for a device Quickshell gave no audio interface, addressed
+    /// through wpctl instead. It presents the same `volume` / `muted` surface a
+    /// PwNodeAudioIface does, so the rows below cannot tell the two apart.
+    ///
+    /// This is not hypothetical: a node's `media.class` is matched EXACTLY
+    /// against "Audio/Source" / "Audio/Sink" / "Audio/Duplex" /
+    /// "Stream/Output/Audio" / "Stream/Input/Audio" when Quickshell decides
+    /// whether to build it an audio interface (PwNode::initProps), and anything
+    /// else gets none. "Audio/Source/Virtual" — the linux-soundboard mic, i.e.
+    /// this machine's default source — is one of those. No interface means no
+    /// `volume` property, so there is nothing for a slider to bind to.
+    ///
+    /// wpctl addresses a node by its numeric PipeWire id and does not care
+    /// about media.class at all. It is also the only way to READ back state
+    /// here: there is no native signal to subscribe to, so the value is polled.
+    component WpAudio: Item {
+        id: wpa
+
+        /// the PwNode this stands in for, or null
+        property var node: null
+        /// 0.0 - 1.0, as wpctl reports it
+        property real volume: 0
+        property bool muted: false
+        /// One flag per polled property, NOT one shared flag: the poll absorbs
+        /// both in the same tick, and each assignment synchronously runs its
+        /// own onChanged handler — so a single flag would be consumed by the
+        /// first one and the second would write the poll's own value straight
+        /// back out as if the user had moved a control.
+        ///
+        /// ONLY absorbX arms these, and only when the value actually moved —
+        /// see absorbVolume. writeVolume deliberately does NOT arm them: the
+        /// property already holds the value just written, so the next poll
+        /// finds it unchanged and never needs suppressing, and an arm here
+        /// would outlive that poll and eat the following real drag.
+        property bool applyingVolume: false
+        property bool applyingMuted: false
+
+        /// wpctl takes the numeric PipeWire id; a node NAME is rejected with
+        /// "Error: '<name>' is not a valid number". `id` is readonly on PwNode
+        /// and is exactly the number `wpctl status` prints.
+        readonly property int id: wpa.node ? wpa.node.id : -1
+
+        function writeVolume(v) {
+            if (wpa.id < 0) return
+            Quickshell.execDetached(["wpctl", "set-volume",
+                                     String(wpa.id), Math.max(0, v).toFixed(3)])
+        }
+        function writeMute(on) {
+            if (wpa.id < 0) return
+            Quickshell.execDetached(["wpctl", "set-mute", String(wpa.id), on ? "1" : "0"])
+        }
+
+        /// Absorb a polled value WITHOUT writing it straight back out.
+        ///
+        /// The `if (same) return` guard is load-bearing, not an optimisation:
+        /// QML fires NO onChanged when a property is assigned its current value,
+        /// so arming the suppression flag and then assigning an unchanged
+        /// number leaves the flag armed forever — and the next real user write
+        /// is eaten as if it were an echo of the poll. Measured: a source
+        /// polled every 400ms whose volume stopped at 0.82 ignored every
+        /// subsequent drag because of exactly this.
+        function absorbVolume(v) {
+            if (Math.abs(wpa.volume - v) < 0.001) return
+            wpa.applyingVolume = true
+            wpa.volume = v
+        }
+        function absorbMuted(m) {
+            if (wpa.muted === m) return
+            wpa.applyingMuted = true
+            wpa.muted = m
+        }
+
+        /// wpctl has NO get-mute command — asking for one prints the usage
+        /// banner and changes nothing — and `wpctl inspect` does not report
+        /// mute either (measured: 0 lines matching "mute" on a node that was
+        /// muted at the time). Measured working read:
+        /// `pactl get-source-mute <name>`, which speaks the same PipeWire graph
+        /// through the pulse shim. So the probe is wpctl for the number and
+        /// pactl for the flag, in one shell line, coming back as two:
+        ///
+        ///   Volume: 0.82
+        ///   Mute: no
+        ///
+        /// A source answers get-source-mute and a sink get-sink-mute; one of
+        /// the two always fails, so the second is the fallback of the first.
+        /// Poll emits per LINE, so both are read here.
+        Poll {
+            id: probe
+            interval: 400
+            // No id means nothing to read: the command would still be non-empty
+            // and Poll would still spawn `sh` for it, five times a second, to
+            // run `true`. Park it instead.
+            active: wpa.id >= 0
+            command: ["sh", "-c",
+                      wpa.id < 0 ? "true"
+                      : "wpctl get-volume " + wpa.id
+                        + " ; pactl get-source-mute " + wpa.node.name
+                        + " 2>/dev/null || pactl get-sink-mute " + wpa.node.name
+                        + " 2>/dev/null"]
+            onResult: output => {
+                const t = String(output)
+                const m = t.match(/Volume:\s*([0-9.]+)/)
+                if (m) wpa.absorbVolume(parseFloat(m[1]))
+                wpa.absorbMuted(/Mute:\s*yes/.test(t))
+            }
+        }
+
+        onVolumeChanged: if (wpa.applyingVolume) wpa.applyingVolume = false
+                         else wpa.writeVolume(wpa.volume)
+        onMutedChanged: if (wpa.applyingMuted) wpa.applyingMuted = false
+                        else wpa.writeMute(wpa.muted)
+    }
+
+    /// The two devices that can be controlled: the active output and the active
+    /// input. Only these carry a slider, so only these need a fallback — and
+    /// `!n.audio` is part of the lookup, because a device that HAS a native
+    /// interface is driven through it, and standing a poll (a `sh` every 400ms)
+    /// up for a node this will never be asked about is pure waste.
+    WpAudio {
+        id: wpSink
+        node: root.outputDevices.find(n => !n.audio
+                                     && n === Pipewire.defaultAudioSink) || null
+    }
+    WpAudio {
+        id: wpSource
+        node: root.inputDevices.find(n => !n.audio
+                                     && n === Pipewire.defaultAudioSource) || null
+    }
+
+    /// The object a device row should control: the node's own interface when it
+    /// has one, the wpctl stand-in when it does not, null when there is nothing
+    /// to control. This is the single point where the two paths are chosen.
+    function audioFor(node, asInput) {
+        if (!node) return null
+        if (node.audio) return node.audio
+        const fb = asInput ? wpSource : wpSink
+        return fb.node === node ? fb : null
+    }
 
     // ---------------- phone audio ----------------
     // A phone streaming over bluetooth is a PipeWire *sink* named bluez5.*: the
@@ -245,6 +399,99 @@ PopupWindow {
         }
     }
 
+    // ---------------- volume slider + mute (shared) ----------------
+    // One definition for every slider in this panel, so the device rows and
+    // the app rows cannot drift apart. `audio` is a PwAudioNode — pass null
+    // and the control simply draws nothing rather than throwing.
+    component VolumeSlider: Controls.Slider {
+        id: vs
+        /// what this slider drives: a PwNodeAudioIface, a WpAudio, or null.
+        /// Assigning `.volume` works for the native one; for WpAudio the
+        /// assignment is what triggers its onVolumeChanged push, which is
+        /// suppressed for a poll echo by its own `applying` flag — so both
+        /// paths are the same line of code.
+        property var audio
+        height: 22
+        from: 0
+        to: root.maxVolume
+        stepSize: 0.01
+        value: vs.audio ? vs.audio.volume : 0
+        onMoved: {
+            if (vs.audio) vs.audio.volume = vs.value
+        }
+
+        background: Rectangle {
+            y: vs.topPadding + vs.availableHeight / 2 - height / 2
+            width: vs.availableWidth
+            height: 4
+            radius: 2
+            color: Tokyo.bgHighlight
+            Rectangle {
+                width: vs.visualPosition * parent.width
+                height: parent.height
+                radius: parent.radius
+                color: Tokyo.magenta
+            }
+        }
+        handle: Rectangle {
+            x: vs.leftPadding + vs.visualPosition * (vs.availableWidth - width)
+            y: vs.topPadding + vs.availableHeight / 2 - height / 2
+            width: 12
+            height: 12
+            radius: 6
+            color: vs.pressed ? Tokyo.fg : Tokyo.pink
+            border.color: Tokyo.bgDark
+            border.width: 1
+        }
+    }
+
+    /// The volume number, as a percentage. Extracted for the same reason as
+    /// VolumeSlider and MuteGlyph: the device rows and the app rows would
+    /// otherwise each carry their own copy and drift. Reaches past 100 when
+    /// AMPLIFY is on, which is the point — that is what the slider is showing.
+    component VolumePercent: Text {
+        id: vp
+        /// the PwAudioNode whose volume and mute state this reports; null
+        /// renders nothing rather than throwing
+        property var audio
+        text: vp.audio ? Math.round(vp.audio.volume * 100) + "%" : ""
+        // Recedes on mute, matching the app rows' long-standing behaviour —
+        // the mute glyph beside it turns yellow and is what carries the state.
+        color: vp.audio && vp.audio.muted ? Tokyo.bgHighlight : Tokyo.fg
+        font { family: Tokyo.fontFamily; pixelSize: 12 }
+        horizontalAlignment: Text.AlignRight
+        verticalAlignment: Text.AlignVCenter
+    }
+
+    /// The speaker/mic glyph, doubling as the mute switch. `audio` is null
+    /// when there is nothing to control yet.
+    component MuteGlyph: Item {
+        id: mg
+        /// the PwAudioNode whose muted flag this toggles
+        property var audio
+        /// true on an input device: a mute button drawn as a speaker is a small
+        /// lie about which side of the pipe it controls, so inputs get the
+        /// microphone glyphs (U+F130 / U+F131) instead.
+        property bool isInput: false
+        implicitWidth: 20
+        implicitHeight: 18
+
+        Text {
+            anchors.centerIn: parent
+            // \uF026 / \uF028 speaker off/on, \uF131 / \uF130 mic off/on.
+            text: !mg.audio ? ""
+                 : (mg.audio.muted ? (mg.isInput ? "" : "")
+                                   : (mg.isInput ? "" : ""))
+            color: mg.audio && mg.audio.muted ? Tokyo.yellow : Tokyo.fg
+            font { family: Tokyo.fontFamily; pixelSize: 11 }
+        }
+        MouseArea {
+            anchors.fill: parent
+            enabled: !!mg.audio
+            onClicked: if (mg.audio) mg.audio.muted = !mg.audio.muted
+        }
+    }
+
     Rectangle {
         id: box
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
@@ -371,7 +618,7 @@ PopupWindow {
                         id: phoneTip
                         width: tipText.width + 20
                         height: tipText.height + 20
-                        radius: 8
+                        radius: Tokyo.pillRadius
                         color: Tokyo.bgDark
                         border.color: Tokyo.bgHighlight
                         border.width: 1
@@ -541,7 +788,19 @@ PopupWindow {
             width: parent.width
             height: root.rowHeight
             radius: 6
-            color: hover.hovered ? Tokyo.bgHighlight : "transparent"
+            // `|| sld.hovered` is not redundancy: the row's MouseArea stops at
+            // the slider, and Qt only propagates hover to ancestors, never to
+            // siblings — so hovering the slider would blank the row behind it.
+            color: hover.hovered || (row.controllable && sld.hovered)
+                   ? Tokyo.bgHighlight : "transparent"
+
+            // Only the device you are actually listening to / talking into gets
+            // a volume control. Every other row is just a way to *choose* that
+            // device, and a slider on a device nothing is routed through is a
+            // control with no effect. The widths collapse to 0 by hand rather
+            // than relying on `visible: false`, which a Row still lays out.
+            readonly property bool controllable: row.isDefault
+                    && !!root.audioFor(row.node, row.asInput)
 
             Row {
                 anchors {
@@ -552,12 +811,30 @@ PopupWindow {
                 spacing: 6
 
                 Text {
-                    width: parent.width - 26
+                    // 26 = the 20px check + its 6px gap. The control column is
+                    // percent 40 + mute 20 + slider 110 plus the three gaps
+                    // between them and the check's — 214 — i.e. everything that
+                    // is not the name.
+                    width: parent.width - (row.controllable ? 214 : 26)
                     text: root.friendlyName(row.node)
                     elide: Text.ElideRight
                     color: row.isDefault ? Tokyo.blue : Tokyo.fg
                     font { family: Tokyo.fontFamily; pixelSize: Tokyo.fontSize }
                     verticalAlignment: Text.AlignVCenter
+                }
+                VolumePercent {
+                    width: row.controllable ? 40 : 0
+                    audio: row.controllable ? root.audioFor(row.node, row.asInput) : null
+                }
+                MuteGlyph {
+                    width: row.controllable ? 20 : 0
+                    audio: root.audioFor(row.node, row.asInput)
+                    isInput: row.asInput
+                }
+                VolumeSlider {
+                    id: sld
+                    width: row.controllable ? 110 : 0
+                    audio: root.audioFor(row.node, row.asInput)
                 }
                 Text {
                     width: 20
@@ -571,7 +848,22 @@ PopupWindow {
 
             MouseArea {
                 id: hover
-                anchors.fill: parent
+                // Stops short of the volume control, or the row would eat every
+                // drag and press on the one slider that is supposed to do
+                // something. On a row with no control it still spans the width.
+                // rightMargin, not `right: muteArea.left`: the glyph is a
+                // grandchild through the Row, and QML refuses to anchor to
+                // anything that is not a parent or a sibling. 206 = the Row's
+                // own 8px right margin + mute 20 + gap 6 + slider 110 + gap 6
+                // + percent 40 + gap 6, i.e. everything from the percentage's
+                // left edge to the row's right edge. The check mark lives inside
+                // that span and stays non-clickable, which is right: it is a
+                // marker on a row already switched on.
+                anchors {
+                    left: parent.left; top: parent.top; bottom: parent.bottom
+                    right: parent.right
+                    rightMargin: row.controllable ? 206 : 0
+                }
                 hoverEnabled: true
                 onClicked: root.setDefault(row.node, row.asInput)
             }
@@ -607,64 +899,19 @@ PopupWindow {
                     font { family: Tokyo.fontFamily; pixelSize: Tokyo.fontSize }
                     verticalAlignment: Text.AlignVCenter
                 }
-                Text {
+                VolumePercent {
                     width: 40
-                    text: Math.round(row.node.audio.volume * 100) + "%"
-                    color: row.node.audio.muted ? Tokyo.bgHighlight : Tokyo.fg
-                    font { family: Tokyo.fontFamily; pixelSize: 12 }
-                    horizontalAlignment: Text.AlignRight
-                    verticalAlignment: Text.AlignVCenter
+                    audio: row.node ? row.node.audio : null
                 }
-                Text {
+                MuteGlyph {
                     width: 20
-                    text: row.node.audio.muted ? "\uf026" : "\uf028" // volume-off / volume-up
-                    color: row.node.audio.muted ? Tokyo.yellow : Tokyo.fg
-                    font { family: Tokyo.fontFamily; pixelSize: 11 }
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: row.node.audio.muted = !row.node.audio.muted
-                    }
+                    audio: row.node ? row.node.audio : null
                 }
 
-                Controls.Slider {
-                    id: sld
-                    height: 22
+                // 150% with AMPLIFY on, the usual 100% ceiling without it.
+                VolumeSlider {
                     width: parent.width - 202
-                    from: 0
-                    // 150% with AMPLIFY on, the usual 100% ceiling without it.
-                    to: root.maxVolume
-                    stepSize: 0.01
-                    value: row.node.audio ? row.node.audio.volume : 0
-                    onMoved: {
-                        if (row.node.audio) row.node.audio.volume = sld.value
-                    }
-
-                    background: Rectangle {
-                        y: sld.topPadding + sld.availableHeight / 2 - height / 2
-                        width: sld.availableWidth
-                        height: 4
-                        radius: 2
-                        color: Tokyo.bgHighlight
-                        Rectangle {
-                            width: sld.visualPosition * parent.width
-                            height: parent.height
-                            radius: parent.radius
-                            color: Tokyo.magenta
-                        }
-                    }
-                    handle: Rectangle {
-                        x: sld.leftPadding + sld.visualPosition * (sld.availableWidth - width)
-                        y: sld.topPadding + sld.availableHeight / 2 - height / 2
-                        width: 12
-                        height: 12
-                        radius: 6
-                        color: sld.pressed ? Tokyo.fg : Tokyo.pink
-                        border.color: Tokyo.bgDark
-                        border.width: 1
-                    }
+                    audio: row.node ? row.node.audio : null
                 }
             }
         }

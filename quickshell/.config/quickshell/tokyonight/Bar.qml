@@ -59,9 +59,34 @@ Variants {
 
         // ---------- clock flyout ----------
         // Left-clicking the clock pill opens this: the timers / clock pair
-        // (clock = time+zones, date, uptime). One per window, anchored to the
-        // clicked pill.
-        ClockFlyout { id: clockFlyout }
+        // (clock = time+zones, date, uptime). One per window.
+        //
+        // It is NOT anchored to the pill that opened it. Quickshell 0.3.1's
+        // PopupWindow is a Wayland xdg_popup, so it can only place itself against
+        // some item on the bar, and the pill is nowhere near where this popup
+        // now lives. `clockAnchor` is the marker it aims at instead: zero-sized,
+        // and centred horizontally at the bar's own top edge — which is also the
+        // screen's top edge, since the bar is at the top. Deliberately *no*
+        // topMargin here: the gap between the bar and the top of the popup is the
+        // flyout's own placement decision (`ClockFlyout.topGap`, applied through
+        // `anchor.margins.top`), and keeping it out of the bar means tuning it
+        // cannot look like a change to the bar's layout. Its own size is never
+        // drawn. Declared before the flyout rather than after, like `toastAnchor`
+        // further down.
+        Item {
+            id: clockAnchor
+            anchors {
+                horizontalCenter: parent.horizontalCenter
+                top: parent.top
+            }
+            width: 0
+            height: 0
+        }
+
+        ClockFlyout {
+            id: clockFlyout
+            anchorItem: clockAnchor
+        }
 
         // ---------- sys flyout ----------
         // Clicking the combined gpu/cpu/ram pill opens this: one tachometer
@@ -145,29 +170,24 @@ Variants {
             // One pill for the whole centre of the bar: time stacked on the
             // date, and the four things that used to sit beside it (date, time,
             // uptime, timer countdown) moved into the flyout it opens.
+            //
+            // The pill is not hidden, not faded and not moved while the flyout is
+            // up. The flyout is a separate surface hung off `clockAnchor`, at the
+            // top of the screen and nowhere near this row, so the two are on
+            // different pixels the instant it appears and there is nothing to
+            // hide. Hiding it was never more than a workaround for a panel that
+            // landed on top of it, and it cost two bugs: `visible: false` is
+            // skipped by the layout that positions the pill, and the popup read
+            // that pill's anchor at the instant it was shown — so the anchor was
+            // read off geometry that was mid-flight and the panel landed up to
+            // half a pill off. Opacity fixed that one and left a second: the
+            // widget disappeared whenever its panel was open, which is a poor
+            // thing for a widget to do when the panel is meant to look like it
+            // belongs to it.
             Clock {
                 id: clockPill
                 flyoutHost: clockFlyout
                 Layout.alignment: Qt.AlignVCenter
-                // Not hidden while the flyout is open, and not faded. The panel
-                // hangs *under* this pill rather than over it — the flyout's
-                // shape starts on this rect and walks its top edge down past the
-                // pill's bottom edge as it opens — so the two are on different
-                // pixels by the end of the morph and there is nothing to hide.
-                //
-                // Hiding it was never more than a workaround for the panel
-                // landing on top of it. It was worth two bugs to stop doing:
-                // `visible: false` is skipped by the layout that positions the
-                // pill, and the popup reads this pill's `magnet` at the instant
-                // it is shown, so the anchor was being read off geometry that was
-                // mid-flight and the panel landed up to half a pill off. Opacity
-                // 0 fixed that one and left a second: the widget disappeared
-                // whenever its panel was open, which is a poor thing for a widget
-                // to do when the panel is meant to look like it belongs to it.
-                //
-                // It stays lit instead, which it manages through `hoveredExtra` —
-                // the flyout's surface covers this pill, so this MouseArea gets
-                // nothing while the panel is up.
             }
         }
 

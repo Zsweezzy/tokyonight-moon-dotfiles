@@ -22,8 +22,6 @@ Item {
 
     /// the manual box was clicked — the host puts the keyboard in it
     signal fieldActivated()
-    /// a timer was started, so a host that clears its form on close can reset
-    signal formChanged()
 
     /// cap the list and clip it; -1 grows with the number of timers. Ignored
     /// while `pinFormToBottom` is set — then the cap comes from the space.
@@ -93,12 +91,6 @@ Item {
     readonly property int capacity: root.listCap < 0
         ? -1
         : Math.max(1, Math.floor((root.listCap + root.gap) / (root.rowH + root.gap)))
-
-    /// running timers the cap is not showing. Drawn nowhere — see `listCap` —
-    /// but kept, because it is the input any overflow affordance needs and
-    /// recomputing it is the easy half of that job.
-    readonly property int hidden: TimerState.timers.length - Math.min(
-        TimerState.timers.length, root.capacity < 0 ? TimerState.timers.length : root.capacity)
 
     // ---------------- the list ----------------
 
@@ -620,9 +612,14 @@ Item {
         // directly below the list when it is not. A `y` binding rather than a
         // `top` anchor because this needs *two* branches and an anchor bound to
         // a conditional keeps the value it was first given.
+        //
+        // `.y + .height`, not `.bottom`: `Item.bottom` is not a property at all,
+        // so it reads as `undefined`, `undefined + gap` is NaN, and the rule —
+        // plus `creator.y`, which chains off it — lands nowhere. The same trap
+        // cost the toast its whole text column once.
         y: root.pinFormToBottom
             ? creator.y - root.gap - 1
-            : rowsArea.bottom + root.gap
+            : rowsArea.y + rowsArea.height + root.gap
     }
 
     TimerCreator {
@@ -634,7 +631,6 @@ Item {
         y: root.pinFormToBottom
             ? parent.height - height
             : creatorRule.y + 1 + root.gap
-        onStarted: root.formChanged()
         onFieldActivated: root.fieldActivated()
     }
 

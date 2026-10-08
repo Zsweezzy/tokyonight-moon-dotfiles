@@ -43,16 +43,14 @@ Rectangle {
     property real letterSpacing: 0.2
 
     property bool hovered: false
-    /// OR'd into `hovered` for the look of it. The pointer can be somewhere this
-    /// module cannot hear about: a flyout's own surface is drawn on top of the
-    /// pill that opened it, so the bar's MouseArea gets nothing at all while the
-    /// panel is up and the widget that opened it cools off under the cursor.
-    /// The host module binds this to "its flyout is open" — see Clock.qml, the
-    /// only user: the other flyouts' pills are not covered by anything.
-    property bool hoveredExtra: false
-    /// What the paint reads. Nothing should test `hovered` for appearance —
-    /// a module can be lit by a flag the MouseArea never set.
-    readonly property bool lit: hovered || hoveredExtra
+    /// What the paint reads, so appearance never has to test `hovered` directly.
+    /// There is one input, which is the honest state of things: the extra input
+    /// this used to OR in existed so a module could stay lit while its own flyout
+    /// covered the pointer, and the clock flyout no longer covers its pill — it is
+    /// anchored to the bar's screen-top marker and opens clear of the bar, so the
+    /// bar's MouseArea keeps hearing the pointer for as long as it is really
+    /// there. Nothing needs to lie about hover any more.
+    readonly property bool lit: hovered
 
     // ---------- events ----------
     /// button is one of Qt.LeftButton / Qt.RightButton / Qt.MiddleButton

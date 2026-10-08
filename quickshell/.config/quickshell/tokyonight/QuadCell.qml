@@ -35,15 +35,28 @@ Rectangle {
     readonly property real headerH: 14
     readonly property real gap: 8
 
+    /// Everything above and below `bodyHolder`: top pad, the title row, the gap
+    /// under it (+4 for the headerExtra overhang, see `headerRule` below), the
+    /// rule itself, the gap above the body, and the bottom pad.
+    ///
+    /// Published so a host can size a cell to its content without re-deriving
+    /// this arithmetic and getting it subtly wrong. A host that hardcodes the
+    /// figure instead compiles, loads, renders — and silently clips the bottom of
+    /// whatever it was trying to fit, which is exactly the bug this number is
+    /// here to make impossible.
+    readonly property real chrome: pad * 2 + headerH + gap * 2 + 5
+
     implicitWidth: 214
     implicitHeight: 176
     radius: Tokyo.pillRadius
-    // `Tokyo.pane`, not bg: a cell in bg (#1e2030) is darker than the panel's
-    // own fill, so the pair read as two black windows punched through the
-    // widget rather than two cards sitting on it. The pane is a thin indigo wash
-    // over that fill instead — same family as the pill, one step up.
-    color: Tokyo.pane
-    border.color: Tokyo.paneEdge
+    // `bg`/`bgHighlight`, SysFlyout's card pair, and the reason is the one it
+    // gives: the popup's own surface is bgDark, so `bg` (#1e2030) is one small
+    // step up from it and the card reads as the same widget — where `pane`
+    // (#394161) put a card almost two stops lighter than the surface it sits on.
+    // `bgHighlight` for the border is a real step against that fill, which is
+    // what makes the card a card.
+    color: Tokyo.bg
+    border.color: Tokyo.bgHighlight
     border.width: 1
 
     // ---------- title row ----------

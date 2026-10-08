@@ -354,6 +354,52 @@ Module {
         settle.start()
     }
 
+    // ---------- live speedtest ----------
+    /// The peak the line can currently reach, {"down":…,"up":…} in Mbit/s.
+    /// `testing` is true only from shell start until the first run lands.
+    /// After that a refetch keeps the last result on screen, so the row
+    /// says it is measuring exactly once per boot and never blanks.
+    property var speed: ({ down: 0, up: 0, testing: true })
+    /// True while the flyout is open. The test runs either way; this only
+    /// picks the cadence — fast while someone is watching, a slow
+    /// background rhythm when the panel is shut.
+    property bool speedLive: false
+
+    Poll {
+        id: speedPoll
+        // Always on: Poll runs its command once at component load and then
+        // on the interval, so a boot gets its first test for free. The
+        // speedLive flag changes how often, never whether.
+        command: [Tokyo.scriptDir + "/speedtest.sh"]
+        // The script caps both transfers at 10s, so a run (~20s worst case)
+        // always lands inside the fast interval and two tests never overlap.
+        interval: root.speedLive ? 30000 : 600000
+        onResult: out => {
+            try {
+                const o = JSON.parse(out)
+                root.speed = {
+                    down: Number(o.down) > 0 ? Number(o.down) : 0,
+                    up: Number(o.up) > 0 ? Number(o.up) : 0,
+                    testing: false,
+                }
+            } catch (e) {
+                // Not our line (or a partial read): drop the spinner, keep
+                // the last good numbers.
+                root.speed = Object.assign({}, root.speed, { testing: false })
+            }
+        }
+    }
+
+    /// Open/close hook from the flyout. Opening kicks a run straight away so
+    /// the numbers are never older than the panel, and closing drops back to
+    /// the background cadence. The last result stays on screen either way --
+    /// `testing` was spent on the boot run and is never set again.
+    function setSpeedLive(on) {
+        if (root.speedLive === on) return
+        root.speedLive = on
+        if (on) speedPoll.refresh()
+    }
+
     // ---------- actions ----------
     // Actions (join/pair) are execDetached rather than polls: they can block
     // for seconds waiting on a phone, and a Poll would hold its process open
@@ -419,6 +465,23 @@ Module {
             root.run(Tokyo.scriptDir + "/bt-dev.sh", ["disconnect", mac])
         // Pairing waits on a tap on the other device, so this is deliberately
         // slower than a radio toggle.
+        confirm.start()
+    }
+
+    function forgetDevice(mac) {
+        // Say something, unlike toggleDevice's silent clear: `run` is
+        // execDetached and bt-dev.sh pipes both of its commands to /dev/null,
+        // so a forget that fails returns nothing to notice and the row just
+        // sits there for 4s looking broken. This matches what joinWifi,
+        // leaveWifi and scanBluetooth already do.
+        root.notice = "Forgetting…"
+        // No busy spinner here, unlike toggleDevice: a forget is immediate, and
+        // the row is about to leave the list anyway — spinning would only claim
+        // the row is doing something when what it is doing is disappearing.
+        root.run(Tokyo.scriptDir + "/bt-dev.sh", ["forget", mac])
+        // bt-dev.sh returns as soon as bluez is told, and the removal lands a
+        // moment later, so the list on screen is still stale. The same
+        // confirming poll a toggle uses is what finally drops the row.
         confirm.start()
     }
 

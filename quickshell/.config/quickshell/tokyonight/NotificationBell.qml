@@ -38,7 +38,6 @@ Module {
         },
     ]
     hPad: unread > 0 ? 10 : 12
-    interactive: true
     tooltip: unread === 0
         ? "No notifications"
         : unread === 1 ? "1 unread notification" : unread + " unread notifications"

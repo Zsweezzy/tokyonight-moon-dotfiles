@@ -87,11 +87,6 @@ Singleton {
         return (h > 0 ? h + ":" : "") + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0")
     }
 
-    function progress(t) {
-        if (!t || !t.totalMs) return 0
-        return Math.min(1, Math.max(0, 1 - root.remainingMs(t) / t.totalMs))
-    }
-
     function byId(id) {
         return root.timers.find(t => t.id === id) || null
     }
@@ -118,19 +113,6 @@ Singleton {
         const paused = root.timers.filter(t => !t.fired && t.paused)
         if (paused.length > 0) return paused[0]
         return root.timers.length > 0 ? root.timers[0] : null
-    }
-
-    /// one line per timer, for the pill tooltip and the window's list
-    function lines() {
-        return root.timers.slice().sort((a, b) => {
-            if (a.fired !== b.fired) return a.fired ? 1 : -1
-            return root.remainingMs(a) - root.remainingMs(b)
-        }).map(t => {
-            const label = t.name ? t.name : ""
-            if (t.fired) return (label ? label + "  " : "") + "finished  " + root.fmt(t.totalMs)
-            if (t.paused) return (label ? label + "  " : "") + "paused    " + root.fmt(root.remainingMs(t))
-            return (label ? label + "  " : "") + root.fmt(root.remainingMs(t)) + "  of " + root.fmt(t.totalMs)
-        })
     }
 
     // ---------------- writes ----------------
@@ -160,10 +142,6 @@ Singleton {
         }
         root.timers = root.timers.concat([t])
         return t.id
-    }
-
-    function startMinutes(minutes, name="") {
-        return root.start(minutes * 60000, name)
     }
 
     function replace(id, patch) {

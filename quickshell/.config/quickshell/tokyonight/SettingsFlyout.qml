@@ -143,6 +143,10 @@ PopupWindow {
     // the time we hear about it. So there is nothing to animate — just drop `t`
     // so the next open starts from the top rather than mid-reveal.
     onVisibleChanged: {
+        // The speedtest runs either way; this only picks its cadence. Open
+        // kicks a fresh run so the row is current with the panel, close
+        // hands the pill back its slow background rhythm.
+        if (root.pill !== null) root.pill.setSpeedLive(visible)
         if (visible) return
         openAnim.stop()
         closeAnim.stop()
@@ -211,6 +215,30 @@ PopupWindow {
     readonly property string linkStats: root.pill === null
         ? ""
         : (root.linkTab === 0 ? root.pill.ethernetTooltip : root.pill.wifiTooltip)
+
+    /// The speedtest line, split per direction so each figure carries its
+    /// own colour: download keeps the cyan this row always had, upload is
+    /// purple. The state words live on the download side and the upload
+    /// stays blank until there is a second figure, so "testing…" is shown
+    /// once rather than twice.
+    readonly property string speedDownText: {
+        const s = root.pill === null ? null : root.pill.speed
+        if (s === null || s.testing) return "testing…"
+        const down = s.down > 0 ? s.down.toFixed(1) : "–"
+        const up = s.up > 0 ? s.up.toFixed(1) : "–"
+        if (down === "–" && up === "–") return "no result"
+        // Same arrow pair the DISK strip uses: down is the download
+        // direction there and here, so the two panels read the same way.
+        return "\uf063 " + down + " Mbps"
+    }
+    readonly property string speedUpText: {
+        const s = root.pill === null ? null : root.pill.speed
+        if (s === null || s.testing) return ""
+        const down = s.down > 0 ? s.down.toFixed(1) : "–"
+        const up = s.up > 0 ? s.up.toFixed(1) : "–"
+        if (down === "–" && up === "–") return ""
+        return "\uf062 " + up + " Mbps"
+    }
 
     /// A bar of signal, so strength is a glance and not a number to read.
     function bars(signal) {
@@ -372,7 +400,33 @@ PopupWindow {
         /// working on something rather than as a row with a label on it
         property bool busy: false
         property string glyph: ""
+        /// Opt-in, and off by default: this row is also the wifi network list
+        /// and the scan button, and neither of those has anything to forget. A
+        /// new call site therefore cannot grow a × by forgetting to ask.
+        property bool forgetable: false
+        /// Hover as state, rather than reading `hover.containsMouse` at each
+        /// use site: the reveal is decided once here, because the × and the
+        /// status word are competing for one slot and must not disagree about
+        /// which of them owns it.
+        property bool hovered: hover.containsMouse
+        // NOT just `dr.hovered`. `hover` and the ×'s own MouseArea are
+        // SIBLINGS, and Qt delivers hover to the deepest item under the cursor
+        // and then to its ancestors only — never sideways. So the moment the
+        // pointer crosses onto the plate, `forgetMouse` becomes the hover leaf,
+        // `hover.containsMouse` goes false, and a reveal that reads only
+        // `dr.hovered` hides the × from under the cursor — which then re-hides
+        // it and re-shows it on every subsequent move. Measured, 1px steps
+        // across the plate: VVVVVV.V.V.V.V.V.V.V.V.
+        // The consequence is not cosmetic: while the × is hidden it is out of
+        // the hit test, so the press falls through to the whole-row MouseArea
+        // and TOGGLES the connection instead of forgetting. `||` breaks the
+        // cycle without a latch: over the row -> shown -> the plate can then
+        // hold hover -> still shown; off both -> both false -> hidden.
+        readonly property bool forgetShown: dr.forgetable && !dr.busy
+                                              && (dr.hovered
+                                                  || forgetMouse.containsMouse)
         signal clicked()
+        signal forgotten()
         implicitHeight: 26
         implicitWidth: 200
 
@@ -392,6 +446,7 @@ PopupWindow {
             font { family: Tokyo.fontFamily; pixelSize: 11 }
         }
         Text {
+            objectName: "rowName"
             anchors {
                 left: g.visible ? g.right : parent.left
                 leftMargin: g.visible ? 7 : 6
@@ -406,8 +461,13 @@ PopupWindow {
         }
         Text {
             id: stateText
+            objectName: "stateWord"
             anchors { right: parent.right; rightMargin: 6; verticalCenter: parent.verticalCenter }
-            visible: !dr.busy
+            // Same rule the spinner follows, one more competitor: whatever holds
+            // the slot hides the word. It is hidden rather than emptied so the
+            // name's right anchor — which is this item's left edge — does not
+            // move under the pointer and reflow the row as the mouse arrives.
+            visible: !dr.busy && !forgetShown
             text: dr.status
             color: Tokyo.dim
             font { family: Tokyo.fontFamily; pixelSize: 10; letterSpacing: 0.8 }
@@ -467,10 +527,57 @@ PopupWindow {
         }
         MouseArea {
             id: hover
+            // Named so a test can tell "the row's own click area got it" apart
+            // from "nothing got it". Returning a bare `other` for both makes a
+            // dead right-hand slot indistinguishable from a working row.
+            objectName: "rowHit"
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: dr.clicked()
+        }
+
+        // Forget, for a paired bluetooth row and nothing else. Declared AFTER
+        // the whole-row MouseArea above and given an explicit z on top of it:
+        // that area is anchored to fill the row, so z is what decides which of
+        // the two takes a press — and if it is the row, a click on the × forgets
+        // nothing and toggles the connection instead.
+        //
+        // z only decides who gets the press. Whether the × is THERE to get it
+        // is `forgetShown` above, and that is the half that was broken: a
+        // hidden × is out of the hit test, so a hover bug silently becomes a
+        // click bug. Both halves are covered by tests/test-forget-button.sh.
+        Rectangle {
+            id: forgetHit
+            // A named handle on the one thing a test cannot reach from outside
+            // an inline component — its inner ids are private to this scope.
+            objectName: "forgetHit"
+            visible: forgetShown
+            z: 1
+            anchors { right: parent.right; rightMargin: 4
+                      verticalCenter: parent.verticalCenter }
+            width: 20; height: 20
+            radius: 5
+            color: forgetMouse.containsMouse ? Tokyo.bgHighlight : "transparent"
+
+            // Same glyph, size and hover plate as the toast dismiss, so a
+            // forget and a dismiss are the same shape to the hand.
+            Text {
+                anchors.centerIn: parent
+                text: "×"
+                color: Tokyo.dim
+                font { family: Tokyo.fontFamily; pixelSize: 13 }
+            }
+            MouseArea {
+                id: forgetMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                // forget, and ONLY forget. `dr.clicked()` here as well would
+                // make one click drop the pairing and immediately ask the
+                // device to pair again, which is the opposite of forgetting it.
+                onClicked: dr.forgotten()
+            }
         }
     }
 
@@ -523,26 +630,43 @@ PopupWindow {
                 spacing: 8
                 opacity: root.stagger(0, root.staggerSpan)
                 transform: Translate { y: (1 - bandPowerRow.opacity) * 5 }
+                // One tile-width cell per action, aligned with the tiles
+                // below: shutdown and reboot each get a full cell (root.tileW),
+                // sleep and log out share the third (tileW - 8, half each, the
+                // 8 being their gap). The row sums to content.width exactly.
                 PillButton {
-                    width: (content.width - 16) / 3
+                    width: root.tileW
                     text: "SHUTDOWN"
                     glyph: ""
                     accent: Tokyo.red
                     onClicked: Quickshell.execDetached(["systemctl", "poweroff"])
                 }
                 PillButton {
-                    width: (content.width - 16) / 3
+                    width: root.tileW
                     text: "REBOOT"
                     glyph: ""
                     accent: Tokyo.magenta
                     onClicked: Quickshell.execDetached(["systemctl", "reboot"])
                 }
                 PillButton {
-                    width: (content.width - 16) / 3
+                    width: (root.tileW - 8) / 2
                     text: "SLEEP"
                     glyph: ""
                     accent: Tokyo.yellow
                     onClicked: Quickshell.execDetached(["systemctl", "suspend"])
+                }
+                // Log out rather than power down: `hyprctl dispatch exit`
+                // ends the session and leaves the machine at the login
+                // screen, which is the one thing this row could not do. The
+                // sign-out glyph \uf08b, not the power glyph the other
+                // three wear — three identical buttons in one row is how a
+                // logout becomes an accidental shutdown.
+                PillButton {
+                    width: (root.tileW - 8) / 2
+                    text: "LOGOUT"
+                    glyph: "\uf08b"
+                    accent: Tokyo.blue
+                    onClicked: Quickshell.execDetached(["hyprctl", "dispatch", "exit"])
                 }
             }
             // ================= the two tiles =================
@@ -617,6 +741,65 @@ PopupWindow {
                     onSwitched: {
                         if (root.pill !== null)
                             root.pill.setLocalSend(!root.airdrop.running)
+                    }
+                }
+            }
+
+            // ================= SPEEDTEST =================
+            // The peak this line can currently reach, re-tested on a timer.
+            // The pill always runs the test; this panel only sets the
+            // cadence (onVisibleChanged) — fast while it is open, a slow
+            // background rhythm when it is not — so opening always finds a
+            // fresh run and a shut panel still keeps results coming.
+            //
+            // Two figures in one card rather than a gauge: down and up are
+            // read against each other, and a ring per direction would double
+            // the row to say half of what one line says.
+            Item {  id: bandSpeed
+                width: parent.width
+                height: 26
+                opacity: root.stagger(1, root.staggerSpan)
+                transform: Translate { y: (1 - bandSpeed.opacity) * 5 }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 6
+                    color: Tokyo.bg
+                    border.color: Tokyo.bgHighlight
+                    border.width: 1
+                }
+                Text {
+                    id: speedLabel
+                    anchors {
+                        left: parent.left; leftMargin: 10
+                        verticalCenter: parent.verticalCenter
+                    }
+                    text: "SPEEDTEST"
+                    color: Tokyo.yellow
+                    font { family: Tokyo.fontFamily; pixelSize: 10
+                           bold: true; letterSpacing: 1.5 }
+                }
+                Row {
+                    id: speedValue
+                    anchors {
+                        right: parent.right; rightMargin: 10
+                        verticalCenter: parent.verticalCenter
+                    }
+                    spacing: 12
+                    Text {
+                        width: implicitWidth
+                        elide: Text.ElideRight
+                        text: root.speedDownText
+                        color: Tokyo.cyan
+                        font { family: Tokyo.fontFamily; pixelSize: 12; bold: true }
+                    }
+                    Text {
+                        visible: root.speedUpText !== ""
+                        width: implicitWidth
+                        elide: Text.ElideRight
+                        text: root.speedUpText
+                        color: Tokyo.purple
+                        font { family: Tokyo.fontFamily; pixelSize: 12; bold: true }
                     }
                 }
             }
@@ -937,11 +1120,18 @@ PopupWindow {
                         status: modelData.connected ? "CONNECTED"
                               : modelData.paired ? "PAIRED" : "NEW"
                         busy: root.btBusy === modelData.mac
+                        // Only a paired device can be forgotten — bluez has no
+                        // record to remove for one that was merely seen.
+                        forgetable: modelData.paired
                         onClicked: {
                             if (root.pill !== null)
                                 root.pill.toggleDevice(modelData.mac,
                                                        modelData.paired,
                                                        modelData.connected)
+                        }
+                        onForgotten: {
+                            if (root.pill !== null)
+                                root.pill.forgetDevice(modelData.mac)
                         }
                     }
                 }

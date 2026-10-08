@@ -154,23 +154,9 @@ Singleton {
     readonly property string fontFamily: "JetBrains Mono Nerd Font"
     readonly property real fontSize: 13
 
-    // ---------- the bar's clock widget ----------
-    /// What the clock pill shows: Font Awesome `clock-o` (nf-fa-clock_o), the
-    /// only glyph in the set that is still a clock at 14px. It used to show
-    /// HH:mm:ss over "Sat 27 Sep", which the flyout's CLOCK pane repeats at a
-    /// size worth reading — the same time in two places, in two sizes, one
-    /// click apart.
-    ///
-    /// Owned here rather than in `ClockFace` because the flyout measures this
-    /// glyph too, for the closed end of its morph, and a second copy of the
-    /// font spec is a second copy of the answer to "how wide is the pill".
-    readonly property string clockGlyph: "\uf017"
-    readonly property real clockGlyphSize: 14
-
     // ---------- script locations ----------
     /// scripts live with the config now (self-contained bar; waybar pkg removed)
     readonly property string scriptDir: Quickshell.env("HOME") + "/.config/quickshell/tokyonight/scripts"
-    readonly property string shellDir: Quickshell.shellDir
 }
 
 

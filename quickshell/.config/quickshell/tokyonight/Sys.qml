@@ -35,6 +35,12 @@ Module {
     property real diskRead: 0       // bytes/s
     property real diskWrite: 0      // bytes/s
 
+    // The heaviest processes right now, one row per pid, sorted by the script.
+    // Reassigned (never mutated) on every poll: the Repeater in SysFlyout.qml
+    // rebuilds its delegates on write, so a list that was mutated in place
+    // would keep the same objects and lose the per-row kill state.
+    property var procs: []
+
     // gpu.sh prints " n/a" on a card with no amdgpu counters, and gpuVram stays
     // 0 there — so the same expression that prints the VRAM figure falls back
     // to the utilization on its own, no second code path.
@@ -71,6 +77,7 @@ Module {
         cpuPoll.refresh()
         memPoll.refresh()
         diskPoll.refresh()
+        procsPoll.refresh()
     }
 
     // ---------- parsers ----------
@@ -142,6 +149,32 @@ Module {
         root.diskLastSec = now
     }
 
+    /// procs.sh: "TOP 12|pid|name|cpuPct|ramMB|..." — the count first, then rows
+    /// of four. Two bail-outs, both keeping the list that is already on screen:
+    /// a header that is not `TOP <n>` (script died before printing anything) and
+    /// a header with no complete row behind it (died part-way through one). A
+    /// blank list reads as "nothing is running", which is a lie; the previous
+    /// list reads as slightly stale, which is true.
+    function applyProcs(out) {
+        const p = String(out).split("|")
+        if (!/^TOP \d+$/.test(p[0].trim())) return
+        const rows = []
+        for (let i = 1; i + 3 < p.length; i += 4) {
+            const pid = parseInt(p[i], 10)
+            if (isNaN(pid) || pid <= 0) continue
+            const cpu = parseFloat(p[i + 2])
+            const ram = parseFloat(p[i + 3])
+            rows.push({
+                pid: pid,
+                name: p[i + 1],
+                cpu: isNaN(cpu) ? 0 : cpu,
+                ram: isNaN(ram) ? 0 : ram,
+            })
+        }
+        if (rows.length === 0) return
+        root.procs = rows
+    }
+
     property real diskLastR: 0
     property real diskLastW: 0
     property real diskLastSec: 0
@@ -169,5 +202,11 @@ Module {
         command: [Tokyo.scriptDir + "/disk.sh"]
         interval: 1000
         onResult: output => root.applyDisk(output)
+    }
+    Poll {
+        id: procsPoll
+        command: [Tokyo.scriptDir + "/procs.sh"]
+        interval: 1000
+        onResult: output => root.applyProcs(output)
     }
 }

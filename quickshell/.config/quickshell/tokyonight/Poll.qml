@@ -28,8 +28,6 @@ Item {
 
     /// emitted with the script's stdout (last read line) on every run
     signal result(string output)
-    /// emitted with the script's stdout when a run exits without output
-    signal finished()
 
     // Quote each argument for sh, then append a settle delay so the final
     // bytes of the script's output drain into the pipe before exit.

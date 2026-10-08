@@ -435,6 +435,8 @@ describedBind(mainMod .. " + W", hl.dsp.exec_cmd("firefox"), "Open Firefox")
 -- Steam window survives the script is incidental to the guard it runs, which
 -- refuses whatever the host cannot resolve and knows nothing about Steam.
 describedBind(mainMod .. " + T", hl.dsp.exec_cmd("steam"), "Open Steam")
+-- SUPER + SHIFT + M = Spotify. S itself is spoken for by the magic workspace.
+describedBind(mainMod .. " + SHIFT + M", hl.dsp.exec_cmd("spotify"), "Open Spotify")
 describedBind(
 	mainMod .. " + D",
 	hl.dsp.exec_cmd("/home/maxii/.config/hypr/scripts/duplicate-window.sh"),

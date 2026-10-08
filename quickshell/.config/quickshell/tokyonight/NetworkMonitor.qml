@@ -1,18 +1,12 @@
 // NetworkMonitor.qml — shared per-adapter counters and latency snapshots.
 import QtQuick
-import Quickshell.Io
 
 Item {
     id: root
 
-    // Updated once per second by network-monitor.sh.  Wifi.qml and
-    // Ethernet.qml consume this array without adding a third visible pill.
+    // Updated once per second by network-monitor.sh.  Settings.qml consumes
+    // this array to show per-adapter counters and latency.
     property var adapters: []
-    property bool ready: false
-
-    function refresh() {
-        poll.refresh()
-    }
 
     function apply(output) {
         try {

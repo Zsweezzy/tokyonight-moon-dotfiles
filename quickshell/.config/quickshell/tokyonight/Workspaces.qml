@@ -70,10 +70,14 @@ Item {
                 clip: true                      // bottom underline follows the radius
 
                 // waybar marks `.active` on the focused workspace's button only
+                // Focus.monitorName, not Hyprland.focusedMonitor.name: that
+                // property's `focusedMonitorChanged` notifier is never emitted
+                // in Quickshell 0.3.1, so it is frozen at whatever had focus
+                // when the config loaded. See Focus.qml.
                 readonly property bool globallyActive: ws.active
-                    && Hyprland.focusedMonitor !== null
+                    && Focus.monitorName !== ""
                     && ws.monitor !== null
-                    && ws.monitor.name === Hyprland.focusedMonitor.name
+                    && ws.monitor.name === Focus.monitorName
 
                 color: globallyActive ? Tokyo.activeTint : (pill.hovered ? Tokyo.bgHighlight : Tokyo.pillBg)
                 Behavior on color {

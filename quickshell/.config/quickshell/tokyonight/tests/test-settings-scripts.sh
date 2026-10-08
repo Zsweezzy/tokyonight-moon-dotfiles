@@ -80,6 +80,23 @@ for d in o["devices"]:
 print("  ok   bt-state.sh: powered is a bool, macs are macs")
 PY
 
+# speedtest.sh spends the user's bandwidth to do its job, so the test hands it
+# 200 KB instead of 80 MB: what has to hold is the line and the two numbers in
+# it, not the measurement. It is also the only script here that can fail
+# without being broken (no route, endpoint down), so a bad run marks the suite
+# instead of stopping it.
+export SPEEDTEST_DOWN_BYTES=200000 SPEEDTEST_UP_BYTES=100000
+out=$(one_json speedtest.sh) || fail=1
+unset SPEEDTEST_DOWN_BYTES SPEEDTEST_UP_BYTES
+python3 - "$out" <<'PY' || fail=1
+import json, sys
+o = json.loads(sys.argv[1])
+for k in ("down", "up"):
+    assert isinstance(o[k], float), f"{k} must be a number: {o[k]!r}"
+    assert o[k] >= 0, o
+print("  ok   speedtest.sh: one line, down/up as Mbit/s numbers")
+PY
+
 # bt-scan is the slow one (it listens), so only the shape is checked and the
 # listen window is one second
 out=$(bash scripts/bt-scan.sh 1 2>/dev/null)

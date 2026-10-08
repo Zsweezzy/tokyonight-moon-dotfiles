@@ -4,8 +4,10 @@
 // about: GPU allocates VRAM in the middle, CPU shows its current clock, RAM
 // shows the same allocation in both (there is no second, separate number to
 // ring for it). Under them, a DISK strip: what is left of / and what is moving
-// across it. Same popup shape as AudioFlyout: a grab-focus xdg_popup hung
-// under the pill that opened it, with the bar's transparent 6px gap strip below.
+// across it, and under that the heaviest PROCESSES right now — one row per PID,
+// sortable by CPU or memory, killable by clicking a row twice. Same popup shape
+// as AudioFlyout: a grab-focus xdg_popup hung under the pill that opened it,
+// with the bar's transparent 6px gap strip below.
 import QtQuick
 import Quickshell
 
@@ -20,14 +22,75 @@ PopupWindow {
     property var pill: null
 
     readonly property real gap: 6
-    readonly property real padH: 16
-    readonly property real padV: 14
+    readonly property real padH: 8
+    readonly property real padV: 8
     readonly property real cell: 132
+    /// air between two dials. The card's width reserves room for it AND the
+    /// Row spends it — one number, so the dials can't drift off-centre from
+    /// the DISK strip and PROCESSES card, which both span the full width.
+    readonly property real cellGap: 8
     /// air between the dials and the strip, and the strip's own height
     readonly property real diskGap: 12
     readonly property real diskH: 40
 
-    implicitWidth: root.cell * 3 + root.padH * 2
+    /// ---------- processes ----------
+    /// Which column the PROCESSES list is ordered by, "cpu" or "mem".
+    property string sortKey: "cpu"
+    /// The pid whose row is waiting for the second click, 0 for none. On the
+    /// ROOT, not on the row: `procs` is reassigned every second and a Repeater
+    /// rebuilds all its delegates on write, so a delegate holding the armed pid
+    /// would lose it on the next poll, one second into a 4s confirm window.
+    property int armedPid: 0
+
+    readonly property int procRows: 10
+    /// card padding, read by the card's own height binding
+    readonly property real procPadV: 7
+    /// name | cpu% | mem, in that order, sliced to the rows that fit
+    readonly property var sortedProcs: {
+        const all = root.pill === null ? [] : (root.pill.procs || [])
+        // slice() first: Array.sort() sorts IN PLACE, and the array handed to us
+        // is the live one from Sys.qml. Sorting it in place would reorder the
+        // script's own output and, since the sort key can differ from the one
+        // the script used, the "heaviest first" list would never come back.
+        const copy = all.slice()
+        const key = root.sortKey
+        copy.sort((a, b) => key === "mem"
+            ? (b.ram - a.ram) || (b.cpu - a.cpu)
+            : (b.cpu - a.cpu) || (b.ram - a.ram))
+        return copy.length > root.procRows ? copy.slice(0, root.procRows) : copy
+    }
+
+    /// First click arms, second click on the SAME row SIGTERMs it. Any other
+    /// click, the 4s timeout, or closing the popup stands down.
+    function requestKill(row) {
+        if (root.armedPid === row.pid) {
+            root.armedPid = 0
+            // execDetached, not a Poll: the kill returns in milliseconds and
+            // there is nothing to read back. SettingsFlyout.qml's power buttons
+            // take the same route.
+            Quickshell.execDetached([Tokyo.scriptDir + "/procs-kill.sh",
+                                     String(row.pid), row.name])
+            killSettle.start()
+        } else {
+            root.armedPid = row.pid
+            killArm.restart()
+        }
+    }
+
+    function disarm() {
+        root.armedPid = 0
+    }
+
+    // A row armed and then armed on a different row is not a confirmation of
+    // the first, so switching columns drops it.
+    function sortBy(key) {
+        root.sortKey = key
+        root.disarm()
+    }
+
+    onVisibleChanged: if (!root.visible) root.disarm()
+
+    implicitWidth: root.cell * 3 + root.cellGap * 2 + root.padH * 2
     implicitHeight: box.height + root.gap
 
     function toggleFor(item) {
@@ -43,8 +106,9 @@ PopupWindow {
     Rectangle {
         id: box
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-        // the dials, plus the disk strip and the air above it
-        height: row.implicitHeight + root.diskGap + root.diskH + root.padV * 2
+        // the dials, the disk strip, the air above it, and the process card
+        height: row.implicitHeight + root.diskGap + root.diskH
+                + root.diskGap + procCard.height + root.padV * 2
         color: Tokyo.bgDark
         radius: Tokyo.pillRadius
         border.color: Tokyo.bgHighlight
@@ -56,7 +120,7 @@ PopupWindow {
                 left: parent.left; top: parent.top
                 leftMargin: root.padH; topMargin: root.padV
             }
-            spacing: 8
+            spacing: root.cellGap
 
             // ---------- gpu: ring = utilization, middle = VRAM allocated ----------
             Column {
@@ -207,6 +271,236 @@ PopupWindow {
                 }
             }
         }
+
+        // ---------- processes: the heaviest pids, sortable, killable ----------
+        Rectangle {
+            id: procCard
+            anchors {
+                left: parent.left; right: parent.right; top: strip.bottom
+                leftMargin: root.padH; rightMargin: root.padH
+                topMargin: root.diskGap
+            }
+            // Rows are a fixed 15px each, so the card's height is arithmetic on
+            // the count rather than a binding on a Column's implicitHeight —
+            // which would make the card resize every time the process count
+            // changes, under the pointer.
+            height: root.procPadV * 2 + procCol.implicitHeight
+            // Same fill and border as the DISK strip above: two cards in a row
+            // should read as the same widget twice, not as two kinds of card.
+            color: Tokyo.bg
+            border.color: Tokyo.bgHighlight
+            border.width: 1
+            radius: Tokyo.pillRadius
+
+            // Behind everything (z: 0) and below the Column (z: 1), so a click
+            // on the card's padding disarms an armed kill instead of falling
+            // through to the popup.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.disarm()
+            }
+
+            Column {
+                id: procCol
+                z: 1
+                anchors {
+                    left: parent.left; right: parent.right; top: parent.top
+                    leftMargin: 6; rightMargin: 6
+                    topMargin: root.procPadV
+                }
+                spacing: 5
+
+                // Header + the two sort buttons on one line. The sort state is
+                // drawn as the column's own colour plus a caret, not just a
+                // weight change: at 9px bold/regular is nearly invisible, and an
+                // unmarked sort column looks identical to a dead one.
+                Item {
+                    id: procHead
+                    width: parent.width
+                    height: 12
+
+                    Text {
+                        anchors {
+                            left: parent.left; verticalCenter: parent.verticalCenter
+                        }
+                        text: "PROCESSES"
+                        color: Tokyo.yellow
+                        font {
+                            family: Tokyo.fontFamily; pixelSize: 10
+                            bold: true; letterSpacing: 1.5
+                        }
+                    }
+
+                    // The two sort buttons take the same column widths, right
+                    // margins and spacing as the ProcRow below them (40/10/46),
+                    // so each one sits flush over the numbers it sorts. Sized
+                    // by the ROW's geometry rather than by what is left of it:
+                    // the header used to be a right-anchored Row of
+                    // natural-width labels, which put CPU a "MEM"'s width to
+                    // the right of the cpu% column it heads.
+                    Row {
+                        anchors {
+                            right: parent.right; verticalCenter: parent.verticalCenter
+                        }
+                        spacing: 10
+
+                        Text {
+                            width: 40
+                            text: "CPU" + (root.sortKey === "cpu" ? " ▾" : "")
+                            color: root.sortKey === "cpu" ? Tokyo.cyan : Tokyo.dim
+                            horizontalAlignment: Text.AlignRight
+                            elide: Text.ElideRight
+                            font {
+                                family: Tokyo.fontFamily; pixelSize: 9; bold: true
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.sortBy("cpu")
+                            }
+                        }
+                        Text {
+                            width: 46
+                            text: "MEM" + (root.sortKey === "mem" ? " ▾" : "")
+                            color: root.sortKey === "mem" ? Tokyo.green : Tokyo.dim
+                            horizontalAlignment: Text.AlignRight
+                            elide: Text.ElideRight
+                            font {
+                                family: Tokyo.fontFamily; pixelSize: 9; bold: true
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.sortBy("mem")
+                            }
+                        }
+                    }
+                }
+
+                Repeater {
+                    id: procList
+                    model: root.sortedProcs
+                    delegate: ProcRow {
+                        width: procHead.width
+                        height: 15
+                    }
+                }
+
+                // Empty state rather than a bare gap: the pill was clicked in
+                // the first second of startup, before procs.sh has written once.
+                Text {
+                    visible: procList.count === 0
+                    width: parent.width
+                    height: 15
+                    text: "no processes"
+                    color: Tokyo.dim
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    font { family: Tokyo.fontFamily; pixelSize: 10 }
+                }
+            }
+        }
+    }
+
+    // One row of the PROCESSES list. Inline component rather than a
+    // `component ProcRow` inside the card so it is declared once at file scope,
+    // the way SettingsFlyout.qml declares Toggle/Tile/DeviceRow.
+    //
+    // Column widths are anchored, never computed: `anchors.right` on a
+    // QQuickAnchorLine has no usable numeric value, so `parent.width - x.right`
+    // is NaN, the row lays out at width 0 and the text silently vanishes. Each
+    // Text here therefore has an explicit `width` AND `elide`, so a long name
+    // loses its tail instead of overflowing the card.
+    component ProcRow: Item {
+        id: row
+        required property var modelData
+
+        readonly property bool armed: root.armedPid === row.modelData.pid
+
+        // The armed row tints and its name becomes a question, so the second
+        // click is aimed at something that looks like a decision rather than at
+        // an unchanged row.
+        Rectangle {
+            anchors.fill: parent
+            anchors { leftMargin: -6; rightMargin: -6 }
+            radius: 4
+            color: row.armed ? Qt.rgba(0.85, 0.30, 0.35, 0.22) : "transparent"
+            Behavior on color { ColorAnimation { duration: 120 } }
+        }
+
+        Text {
+            id: nameText
+            anchors {
+                left: parent.left; right: cpuText.left
+                verticalCenter: parent.verticalCenter
+                rightMargin: 8
+            }
+            height: 14
+            text: row.armed
+                ? row.modelData.name + " (kill?)"
+                : row.modelData.name
+            color: row.armed ? Tokyo.red : Tokyo.fg
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignLeft
+            font {
+                family: Tokyo.fontFamily
+                pixelSize: 11
+                bold: row.armed
+            }
+        }
+
+        Text {
+            id: cpuText
+            anchors {
+                right: memText.left; verticalCenter: parent.verticalCenter
+                rightMargin: 10
+            }
+            width: 40
+            height: 14
+            // >100 is real: a process burning three threads is over one core.
+            // Elided rather than capped at 100 — a list that clamps cannot show
+            // which of two processes is actually busier.
+            text: row.modelData.cpu.toFixed(0) + "%"
+            color: row.armed ? Tokyo.dim : Tokyo.cyan
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideRight
+            font { family: Tokyo.fontFamily; pixelSize: 10 }
+        }
+
+        Text {
+            id: memText
+            anchors {
+                right: parent.right; verticalCenter: parent.verticalCenter
+            }
+            width: 46
+            height: 14
+            text: Math.round(row.modelData.ram) + "M"
+            color: row.armed ? Tokyo.dim : Tokyo.green
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideRight
+            font { family: Tokyo.fontFamily; pixelSize: 10 }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            anchors { leftMargin: -6; rightMargin: -6 }
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.requestKill(row.modelData)
+        }
+    }
+
+    // Two deferred beats, both borrowed from Settings.qml's `confirm`/`settle`
+    // pair: 4s to change your mind about a kill, 900ms for the kill to have
+    // actually removed the row before the next poll.
+    Timer {
+        id: killArm
+        interval: 4000
+        onTriggered: root.disarm()
+    }
+    Timer {
+        id: killSettle
+        interval: 900
+        onTriggered: if (root.pill) root.pill.refresh()
     }
 
     // VRAM total is worth the pixels only while the card is reporting it.

@@ -1,5 +1,5 @@
 // ClockFlyout.qml — left-clicking the clock pill opens this: a 1x2 pair of
-// panes holding everything the bar used to spread over four separate pills.
+// cards holding everything the bar used to spread over four separate pills.
 //
 //   +-------------------+-------------------+
 //   | TIMERS            | CLOCK             |
@@ -11,56 +11,45 @@
 //
 // This started as a 2x2 grid of four cells. Four cells meant four titles, four
 // rules and four sets of insets to keep in step, and the bar's centre spent the
-// same 462 px on two rows of 214 while the timer form — the one pane with
+// same 452 px on two rows of 214 while the timer form — the one card with
 // something to type into — was squeezed into a square. Collapsing the three
-// time-ish panes into a single stacked pane buys the timers pane a full-height
+// time-ish cards into a single stacked card buys the timers card a full-height
 // half of the panel without widening the flyout at all.
 //
-// One instance per bar window (created in Bar.qml), anchored to whichever pill
-// was clicked, so it always opens on the monitor you clicked. `grabFocus`
-// dismisses it on any outside click.
+// One instance per bar window (created in Bar.qml), so it always opens on the
+// monitor you clicked. `grabFocus` dismisses it on any outside click.
 //
-// THE MORPH. The pill and this panel are one rectangle, and `t` is the single
-// number that says how far along the change from one to the other is: the
-// shape's width, height, radius, fill and top edge are all read off it, and
-// nothing here animates on a timer of its own. At t=0 the shape is a copy of
-// the clock pill, on the pill's own pixels; at t=1 it is the `panelW`-wide,
-// `pad * 2 + cellH`-tall panel hanging directly below that pill. Both edges
-// travel: the bottom runs down `panelH - pillH` while the top walks down exactly
-// the pill's height, so the panel finishes flush under the widget instead of
-// having replaced its row. The sizes are the formulas rather than the numbers
-// they come to: every absolute written in this file went stale the first time a
-// constant moved under it.
+// WHERE IT SITS. It is *not* anchored to the pill that opened it, and it never
+// was meant to be more than an item in the bar: an xdg_popup cannot float free,
+// so the bar hands it `clockAnchor` — a zero-size Item at the top centre of the
+// bar — and the popup hangs from that. `Edges.Top` with no Left or Right is the
+// whole trick: quickshell's positioner reads "centred" from the absence of a
+// horizontal edge, so with a zero-size anchor the popup's *top* lands on the
+// marker's top edge, its middle on the screen's middle, and gravity Bottom
+// expands it downward from there. The marker's own top edge is the bar's top
+// edge, and `anchor.margins.top` (see `topGap`) then pushes the whole panel down
+// clear of the bar — the offset belongs to the placement, so it is applied here
+// and not baked into the bar's geometry. No reserved strip, no second surface
+// and nothing to measure: the pill is nowhere near the popup and the two never
+// share a pixel, which is what lets the pill just sit there showing the time the
+// whole time this is open.
 //
-// That top edge is the one part of the shape that is not a lerp between a
-// pill's number and a panel's — it is `drop * min(1, t)`, capped rather than
-// left to follow the 1.04 overshoot, so the joint never re-opens. See the
-// comment on `shape.y` for why this used to be forbidden and what changed.
+// This is SysFlyout.qml's shape, because SysFlyout.qml's *look* was the point.
+// The outer box is `bgDark` / `pillRadius` / a 1px `bgHighlight` border, the two
+// cards inside it are `bg` on `bgHighlight`, the insets and the gap between the
+// cards are SysFlyout's own 8, labels are 10 bold ls 1.5 and figures are 13
+// bold.
 //
-// The price is one thing, and it is the price: the panel's top is no longer the
-// widget's own row. It used to be — the label was the panel's first `pillH` rows
-// and the digits were the window's, so at rest the two were adjacent rather than
-// coincident, and the label only ever came near them as the shape uncovered it.
-// The widget's rows had to stay the widget's, and they could only stay them by
-// the readings leaving the header: on the widget's own row a header repeating
-// the time and the date is a third copy of it, two of them a click apart. Left
-// with nothing to repeat, the header had nothing left to do but name the panes
-// the CLOCK pane already names — so it was deleted, and what the panel has where
-// the header was is `pad` of margin. The bar's widget keeps its own clock —
-// `HH:mm:ss` over the date, becoming a clock glyph while the panel is up — and
-// the panel's silence is what makes opening it read as the widget going quiet
-// rather than as the clock having moved somewhere else.
-//
-// That is possible because a PopupWindow is an xdg_popup — a *child* surface of
-// the bar's own, composited above it by protocol. The window is anchored with
-// its top edge on the pill's top edge and hangs down over the bar and past it,
-// so the shape can start as an exact copy of the widget that was clicked and
-// grow out of it with no seam and no second surface. (Caelestia gets the same
-// read with BlobRect/BlobGroup: one shape shared by the button and the popout.
-// Here it is one Rectangle, and the shape spanning the two is the whole trick.)
-// The window is the shape's *final* size plus a transparent margin, not its
-// animated size — resizing a surface every frame is a compositor round-trip
-// per frame, and the margin is what gives `t`'s overshoot somewhere to go.
+// ONE PLACE IT DOES NOT COPY SysFlyout, and it is the user's call: SysFlyout has
+// no reveal at all, opening on a bare `visible = true`. This one flies in and
+// flies back out, and it does it the way SettingsFlyout.qml and
+// NotificationCenter.qml do — one number, `t`, that the whole panel is a
+// function of. `t` is the only thing either direction writes; it moves the
+// panel down into place and back up as `content.y`, and fades it as
+// `content.opacity`, both on an inner Item. The window's `implicitWidth` and
+// `implicitHeight` are static bindings that never change, because resizing an
+// xdg_popup is a compositor round-trip per frame. Nothing about the pill's own
+// contents moves, ever: that was the morph and it is gone.
 //
 // WHERE THE DATA COMES FROM, and why it is uneven:
 //   - local time/date, and the boot timestamp, are plain JS Date arithmetic on
@@ -77,7 +66,6 @@
 // opening one refreshes immediately instead of waiting out the interval.
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 
@@ -88,147 +76,93 @@ PopupWindow {
     grabFocus: true
     color: "transparent"
 
-    // ---------------- the morph ----------------
+    // ---------------- geometry ----------------
 
-    /// True from the click that opens the panel until the frame its surface is
-    /// torn down. The bar's pill stays on screen for all of it and is on
-    /// different pixels by the end — see the long comment in `toggleFor`.
-    property bool open: false
-    /// Set while the close animation runs, so a second click cannot restart it
-    /// halfway and strand the shape at some `t` between 0 and 1.
-    property bool closing: false
-    /// 0 = pill, 1 = panel. `openAnim` takes it to 1.04 before settling on 1:
-    /// a spatial spring overshoots, and the overshoot is most of the difference
-    /// between "grew" and "was replaced".
-    property real t: 0
-    /// The bar's Clock, so the closed end of the morph is the pill's *measured*
-    /// width rather than a second guess at it.
-    property var pill: null
-    /// The hover the bar's pill was carrying at the instant of the click, latched
-    /// in `toggleFor`. See `hoverTint` for why it cannot be read live off this
-    /// window's own MouseArea.
-    property bool hoverCarry: false
-
-    /// Whether the bar's pill should be painted lit. This window's surface is
-    /// drawn *on top of* the pill, so while the popup holds the pointer the bar's
-    /// MouseArea hears nothing and the pill would cool off under the cursor at
-    /// the exact moment its panel appeared. The pill binds this as
-    /// `hoveredExtra` — it is a sibling, not a child, so nothing binds the
-    /// other way, but a binding can still cross *into* it.
-    readonly property bool pillLit: root.open
-        && (root.hoverCarry || pillMouse.containsMouse)
-
-    /// How far the widget's contents have gone from the readings to the glyph.
-    ///
-    /// Owned here and read by both copies of the face — this window's, drawn on
-    /// the shape, and the bar's, under it — because during the morph both are on
-    /// screen at the same pixels and a frame where they disagree is a frame
-    /// where the hand-over is visible. The bar's copy reads it through
-    /// `Clock.flyoutHost`; this window's reads it directly.
-    ///
-    /// `/ 0.7` is a ~50 ms fade on a ~300 ms morph (`t` is a spatial value on an
-    /// `Easing.OutQuart` curve, so it is most of the way there by 20 ms — hence
-    /// the divisor rather than a duration in milliseconds). Long enough not to
-    /// pop, short enough to be over before the shape's top edge has travelled far:
-    /// the glyph is 14 rows centred in a 26-row pill, so it does not reach the
-    /// edge until `t` = 0.77, and a fade still running then would be a face
-    /// half-readings, half-glyph on the only part of it anyone sees.
-    readonly property real glyphMix: Math.min(1, root.t / 0.7)
-
-    readonly property real room: 18          // transparent margin for the overshoot
-    readonly property real pad: 12
-    readonly property real cellGap: 10
+    // SysFlyout.qml:25-26 and :31, unchanged. This was 12/10 on the argument
+    // that these cards are 62px wider than SysFlyout's and so want a looser
+    // inset — the ratio says otherwise (12/214 against 8/132), and the user
+    // looking at both panels side by side read it as thicker, not looser. One
+    // figure for the family beats a defensible per-file one.
+    readonly property real pad: 8
+    readonly property real cellGap: 8
     readonly property real cellW: 214
-    /// Where on the morph the panel's own content starts to appear — `panel`'s
-    /// opacity is `max(0, min(1, (t - contentIn) / 0.5))`, and it is named
-    /// rather than left as a literal in that one place because a second thing has
-    /// to agree on it: `pillMouse` has to be down to `pad` by then, so the
-    /// click-to-close strip is never sitting over a row the panes can be pressed
-    /// on. See there.
-    readonly property real contentIn: 0.35
-    // The pill's *implicit* width, not its `width`. The bar's layout is free to
-    // leave whatever it likes in `width`, and the shape's closed end has to be
-    // the pill's own idea of how wide it is rather than one layout pass's idea.
-    // The implicit width is a binding on the face's font metrics, so the shape
-    // and the face are both cut from the same number. The fallback is for a
-    // standalone preview, where no bar handed a pill over at all.
-    readonly property real pillW: pill !== null ? pill.implicitWidth : face.faceW
-    readonly property real pillH: Tokyo.pillHeight
     readonly property real panelW: pad * 2 + cellW * 2 + cellGap
-    /// How far the shape's top edge travels, from the pill's top edge to the
-    /// pill's *bottom* edge — so the open panel hangs flush under the widget
-    /// instead of taking its place.
-    ///
-    /// Exactly the pill's height, because the window's top edge is the pill's
-    /// top edge (see `magnet` in Clock.qml) and nothing above that moves. The
-    /// panel's top row therefore lands on the bar's lower half of padding, which
-    /// is empty: the pills either side of this one are at the two ends of a
-    /// 462-wide gap, so there is nothing for the overlap to land on.
-    readonly property real drop: root.pillH
-    /// The fillet at the joint: how far the panel's top edge sweeps up the
-    /// widget's side before it becomes the widget's side. Bounded by the
-    /// widget's own straight left side — a `pillRadius` round rect of height
-    /// `drop` has straight sides only from `pillRadius` to `drop - pillRadius`,
-    /// and the arc's tangent point has to land in that run or it starts on a row
-    /// that is already curving and kinks. `drop - pillRadius` is therefore the
-    /// largest arc that fits, and at its tangent point the fillet meets the
-    /// widget's own corner exactly where that corner becomes vertical, so the
-    /// two arcs join without a break.
-    ///
-    /// Capped by the shape's own top edge, and that cap is the whole trick: the
-    /// arc is drawn tangent to the *live* edge rather than to the edge's final
-    /// resting place, so the widget's side, the fillet and the top edge are one
-    /// continuous outline at every value of `t` and not only at t=1. A fillet
-    /// pinned to the resting place and faded in at the end is the same silhouette
-    /// for the 150ms in between, hanging above an edge that is still six rows
-    /// below where it will end up. The cap degenerates the fillet to a point at
-    /// t=0, so it needs no opacity of its own, and 0.1 rather than 0 because an
-    /// SVG arc with a zero radius is not a legal path.
-    readonly property real fillet: Math.max(0.1, Math.min(root.drop - Tokyo.pillRadius, shape.y))
-    /// How far the shape's top edge has come down over the widget's own bottom
-    /// corner, 0..1 — which is how much of the corner is uncovered and so how
-    /// much of the patch that squares it has to be at full strength. Reads the
-    /// edge rather than `t`, for the reason `fillet` does.
-    readonly property real patchMix: Math.max(0, Math.min(1, (shape.y - root.drop + Tokyo.pillRadius) / Tokyo.pillRadius))
     /// One row of two, so the panel is only as tall as its content. Nothing sets
-    /// this number: it is *measured* off the clock pane's three stacked blocks
+    /// this number: it is *measured* off the clock card's three stacked blocks
     /// (see `clockTail`), because the block heights are font metrics and the
     /// zone count — three of them — is data. A hand-written constant here would
     /// be wrong the moment a zone is added, and a wrong constant is not a
     /// cosmetic bug: the bottom of the UPTIME block would be cut off.
     ///
-    /// 55 = QuadCell's chrome, item by item: 10 pad + 14 title row + 12 gap
-    /// down to the rule (`gap`, plus the 4 by which the title row's 22 px
-    /// buttons overhang a 14 px row, see QuadCell) + 1 rule, + 8 gap down to the
-    /// body, + 10 pad under it. Was 51 before that 4 was spent.
+    /// `chrome` is QuadCell's own figure, read rather than re-derived here. An
+    /// earlier version spelled it out as the literal 55, which was a second copy
+    /// of QuadCell's arithmetic living in a file that does not own it: editing
+    /// either side alone still compiled, still loaded, and still rendered — it
+    /// just quietly cut the bottom off the UPTIME block. There is nothing to keep
+    /// in sync now.
     ///
-    /// It is a frame constant, not the pane's height: cellH is this chrome plus
-    /// `clockTail`, so the body the panes actually get is the tail either way and
-    /// raising the chrome does not shrink the clock pane's content. That is also
-    /// what keeps the two panes the same height while their frame grows under
-    /// them, and why `listCap` does not move. Re-derive both sides together —
-    /// QuadCell's comment above its rule carries the same arithmetic.
-    readonly property real cellH: 55 + clockPane.clockTail
-    /// The cells, with `pad` above and `pad` below. Written as `pad * 2` rather
-    /// than as a sum of two literals so the two margins cannot drift apart: the
-    /// top one has to stay equal to the bottom one, because `pillMouse` is sized
-    /// off the strip the top one leaves (see there) and a bare `pad` in each
-    /// place is two chances to be wrong.
-    ///
-    /// The header band this replaced was `pillH` of rows plus a `headerGap`; both
-    /// are gone, and the only thing above the panes now is the margin.
+    /// `chrome` is a frame constant, not the card's height: cellH is chrome plus
+    /// `clockTail`, so the body the cards actually get is the tail either way and
+    /// raising the chrome does not shrink the clock card's content. That is also
+    /// what keeps the two cards the same height while their frame grows under
+    /// them.
+    readonly property real cellH: clockPane.chrome + clockPane.clockTail
+    /// The cards, with `pad` above and `pad` below. Written as `pad * 2` rather
+    /// than as a sum of two literals so the two margins cannot drift apart.
     readonly property real panelH: pad * 2 + cellH
 
-    implicitWidth: panelW + room * 2
-    // The panel plus its overshoot margin, plus `drop` for the top edge's
-    // journey down to under the widget. At t=0 all of that is empty bar: the
-    // window is `panelH + room + drop` tall with `pillH` of them painted, and the
-    // rest is the margin the shape grows into.
-    implicitHeight: panelH + room + drop
+    /// The window is the panel. No transparent margin around it and no strip
+    /// reserved below it: it opens already placed (see `topGap`), and there is
+    /// nothing inside the window for a margin to be room for.
+    implicitWidth: root.panelW
+    implicitHeight: root.panelH
+
+    // ---------------- anchoring ----------------
+
+    /// The bar's zero-size screen-top-centre marker (Bar.qml: clockAnchor)
+    property var anchorItem: null
+
+    /// How far below the bar the panel hangs. It lives here, not as a margin on
+    /// `clockAnchor`, because it is a property of the *placement* and not of the
+    /// marker: the marker says where on screen the panel is centred, and the gap
+    /// below the bar is this panel's business. Putting it on the marker instead
+    /// made a figure that tunes this popup look like it belonged to the bar's
+    /// layout, so tidying it to 0 produced no error and the panel jumped up under
+    /// the bar's pills — and a bar moved to the bottom of the screen would have
+    /// opened it mid-screen.
+    readonly property real topGap: Tokyo.barHeight + Tokyo.edgeGap
+
+    /// The bar's Clock, read for its `now` so the panel's seconds and the pill's
+    /// seconds are the same Date. May be null in previews — see `clock`.
+    property var pill: null
+
+    // `Top` alone on both edges and `Bottom` for gravity is the reading that hangs
+    // the panel from the marker's top edge while leaving its horizontal placement
+    // centred — quickshell centres when no Left or Right edge is named.
+    //
+    // `PopupAdjustment.None`, not Toast.qml's `All`. `All` is Flip | Slide |
+    // Resize, and FlipY inverts the vertical gravity: if the panel ever grew past
+    // the space below `topGap`, the compositor would flip it to hang UPWARD off
+    // the top of the screen. That is not hypothetical here — `cellH` is measured
+    // off font metrics and `clockTail` grows by a whole 22px row per timezone
+    // added, so the height is data, not a constant. The horizontal axis does not
+    // have that problem: the panel is centred on a full-width bar, so a
+    // horizontally flipped or slid popup could never be the lesser evil, and
+    // `None` keeps the placement above exactly as written instead of letting the
+    // compositor reinterpret it on a monitor it thinks is too small.
+    Component.onCompleted: {
+        root.anchor.item = root.anchorItem
+        root.anchor.edges = Edges.Top
+        root.anchor.gravity = Edges.Bottom
+        root.anchor.margins.top = root.topGap
+        root.anchor.adjustment = PopupAdjustment.None
+    }
 
     // ---------------- data ----------------
 
-    /// local wall clock. Drives every date/time line and the boot timestamp.
+    /// Local wall clock, and the fallback for `clock` when no bar handed over a
+    /// pill. Reads it directly and nothing else should: its timer only runs in
+    /// that case, so outside a standalone preview this value never advances.
     property var now: new Date()
 
     /// [{ label, clock, delta, abbrev }] — the extra zones, from clock-panel.sh
@@ -238,12 +172,18 @@ PopupWindow {
 
     // One tick for the whole flyout. A timer per block would let the clock, the
     // date and the uptime disagree about what time it is for up to a second.
+    // Only while it is actually the source of truth, though — see `clock`.
     Timer {
         interval: 1000
         repeat: true
-        running: true
+        running: root.pill === null
         onTriggered: root.now = new Date()
     }
+
+    /// The one clock this panel reads, for every date and time line in it. The
+    /// bar's pill owns the tick whenever there is one, so the fallback timer above
+    /// does not run in the real shell at all.
+    readonly property var clock: root.pill !== null ? root.pill.now : root.now
 
     // clock-panel.sh prints "<uptime-secs>|<CityCode>\tHH:MM:SS\t<delta>\t<abbrev>|…"
     // on a single line, so SplitParser hands the whole thing over at once.
@@ -251,7 +191,7 @@ PopupWindow {
         id: clockPoll
         command: [Tokyo.scriptDir + "/clock-panel.sh"]
         interval: 1000
-        active: root.open             // a closed flyout must cost nothing
+        active: root.visible          // a closed flyout must cost nothing
         onResult: output => root.parse(output)
     }
 
@@ -287,7 +227,7 @@ PopupWindow {
 
     /// When the machine came up, derived rather than read: boot = now - uptime.
     readonly property var booted: root.upSecs > 0
-        ? new Date(root.now.getTime() - root.upSecs * 1000)
+        ? new Date(root.clock.getTime() - root.upSecs * 1000)
         : null
 
     // ---------------- date helpers ----------------
@@ -323,113 +263,150 @@ PopupWindow {
         return glyphs[slice]
     }
 
-    // ---------------- window / anchoring ----------------
+    // ---------------- open / close ----------------
 
-    /// `pill` is the bar's Clock, for its measured width. `magnet` is that pill's
-    /// 1x1 anchor dot, and it — not the pill — is what the window is anchored to:
-    /// see the comment on `magnet` in Clock.qml.
-    function toggleFor(pill, magnet) {
-        if (root.open) {
-            root.close()
-            return
-        }
+    /// Three states, not two, because the close is now a gesture and a gesture
+    /// takes time: open, shut, and closing. That middle state is the only reason
+    /// `closing` exists — without it a second click during the exit restarts the
+    /// close from wherever `t` had got to and the panel visibly stutters.
+    ///
+    /// `t = 0` before the reveal starts because a property animation applies
+    /// `from` on its first update, and that update is the frame *after* the window
+    /// is already up: without this line the panel shows at rest for one frame and
+    /// then yanks itself up 10px and back down, which reads as a glitch rather
+    /// than as an animation.
+    ///
+    /// `root.pill` is read again on every toggle, because the pill is the bar's
+    /// own widget and `clock` reads its `now` through it. `refresh()` before the
+    /// surface goes up, not after: a zone row showing the sample from up to a
+    /// second before the click is a row showing a lie.
+    function toggleFor(pill) {
         root.pill = pill
-        root.anchor.item = magnet
-        root.anchor.edges = Edges.Top
-        root.anchor.gravity = Edges.Bottom
-        // No margins, and the half-pill correction that used to live here is
-        // gone on purpose.
-        //
-        // `Edges.Top` with no Left/Right edge puts the window's middle on the
-        // anchor's middle, which is what a morph wants: the anchor is a 1x1 dot on
-        // the pill's centre line (see Clock.qml's `magnet`), so the panel's
-        // centre lands on the pill's centre however the bar lays itself out.
-        // Measured with the shape's fill made opaque for the measurement: the
-        // open panel spans 728.50..1190.50, centre 959.50, which is the closed
-        // pill's own centre to the pixel.
-        //
-        // There was a `margins.left = -pillW` here for a day and a half, undoing
-        // a half-pill error that was not in quickshell at all: it was this
-        // config's own doing. Bar.qml hid the pill while the flyout was open —
-        // first with `visible: false`, then with `opacity: 0` — and a hidden item
-        // is skipped by the layout that positions it, so the popup's anchor was
-        // read at an instant when the pill's geometry was mid-flight and the
-        // panel landed up to half a pill off in whichever direction that pass
-        // happened to fall. Opacity fixed the layout; not hiding the pill at all
-        // fixed the rest. The panel now hangs *under* the widget rather than
-        // taking its place, so there is nothing to hide — the two are on
-        // different pixels, and the shape slides off the pill to get there.
-        //
-        // `pillW` is an implicit width rather than a laid-out one for the same
-        // reason it was before: a hidden item's width is not a number to design
-        // a shape from, and the implicit width is the same binding on every
-        // layout pass.
-        root.closing = false
-        root.t = 0
-        // Read the bar's hover flag *here*, while the bar's MouseArea is still
-        // the one under the pointer: the click that opens this arrives through
-        // it, and a frame later the popup owns the pointer and the bar hears
-        // nothing more.
-        root.hoverCarry = root.pill !== null && root.pill.hovered
-        root.open = true
-        root.visible = true
-        // Do not wait out the poll interval for data that is already stale.
-        clockPoll.refresh()
-        openAnim.restart()
-    }
-
-    function close() {
-        if (!root.open || root.closing) return
-        root.closing = true
-        closeAnim.restart()
-    }
-
-    /// Tear the surface down once the shape is a pill again. `open` goes first,
-    /// so the bar's pill has stopped being lit from here before this surface
-    /// stops being the thing drawing over it.
-    function hide() {
-        root.closing = false
-        root.open = false
-        root.visible = false
-    }
-
-    // A flyout dismissed by an outside click never reaches `hide()`: the
-    // compositor closes an xdg_popup itself, and the surface is already gone by
-    // the time we hear about it. So there is nothing left to animate — just drop
-    // `open`, which unlights the pill, and forget the morph.
-    onVisibleChanged: {
-        if (visible) return
-        if (root.open) {
-            openAnim.stop()
+        if (!root.visible) clockPoll.refresh()
+        // Re-assert the anchor on every open, as SysFlyout does. 0.3.1 only
+        // computes the position when the window is first shown, so a marker that
+        // has moved since construction would place the panel from a stale
+        // rectangle. `clockAnchor` is pinned to static bar geometry so this is
+        // belt-and-braces, not a live bug — but it is one line, and it is the
+        // self-healing the pre-morph code had.
+        root.anchor.item = root.anchorItem
+        if (root.closing) {
+            // A close is in flight: this click reverses it rather than opening a
+            // second panel, which is what a plain visible toggle would do.
             closeAnim.stop()
             root.closing = false
-            root.open = false
             root.t = 0
+            openAnim.start()
+            return
         }
-        // A dismissed flyout must not come back with the last half-typed timer
-        // still in the form.
+        if (root.visible) {
+            root.closing = true
+            closeAnim.start()
+            return
+        }
+        root.visible = true
+        root.t = 0
+        openAnim.start()
+    }
+
+    /// Escape and the outside click both land here. `closing` goes true first so
+    /// a second Escape cannot restart the exit mid-flight; `closeAnim` runs `t`
+    /// back to 0 and calls `hide()` itself, so nothing here touches `visible` —
+    /// setting it here would cut the panel off mid-slide and leave `t` stranded
+    /// above 0 for the next open.
+    function close() {
+        if (root.closing) return
+        root.closing = true
+        closeAnim.start()
+    }
+
+    // A flyout dismissed by an outside click never runs anything of ours: the
+    // compositor closes an xdg_popup itself, and the surface is already gone by
+    // the time we hear about it. So there is nothing to animate — but `t` and
+    // `closing` still have to go back to their start values, or the next open
+    // begins halfway through a reveal that is no longer running, and `closing`
+    // stays latched so the first Escape after it does nothing at all.
+    onVisibleChanged: {
+        if (visible) return
+        openAnim.stop()
+        closeAnim.stop()
+        root.closing = false
+        root.t = 0
         timerPanel.reset()
     }
 
-    // One curve, both directions. The fly-in is the fly-out played backwards:
-    // OutQuart over 200 ms, which is exactly the time-reverse of the InQuart
-    // 200 ms below. The panel therefore looks the same going up as coming down
-    // — the same motion, reversed — instead of opening on a springy overshoot
-    // that the close never had, which read as the panel being *placed* rather
-    // than *drawn out of the pill*.
+    // Escape closes, and it is a `Shortcut` and nothing else. A `Keys` attached
+    // property only sees the key if some item in the window holds the focus, and
+    // with the timer form empty nothing in this popup does — so a `Keys` handler
+    // is dead exactly when the panel has just opened. A window shortcut is matched
+    // against the window instead, and a popup holding the keyboard grab *is* the
+    // active window. It also beats the field: Qt resolves shortcuts before
+    // ordinary key propagation, so Escape closes the panel rather than being
+    // swallowed by a text field that ignores it — which means a `Keys` fallback
+    // for the focused-field case would never run anyway, and there is only one
+    // path to reason about. `ApplicationShortcut` would be wrong — that is for
+    // shortcuts that must work while *another* window is focused.
+    Shortcut {
+        sequence: "Escape"
+        context: Qt.WindowShortcut
+        onActivated: root.close()
+    }
+
+    // ---------------- the surface ----------------
+
+    /// How far above its resting place the panel sits while it is shut. Big
+    /// enough to read as movement rather than as a dissolve, small enough that
+    /// the whole panel is still mostly on screen while it happens.
+    readonly property real slideFrom: 10
+
+    // ---------------- the reveal ----------------
+    // The same one-number reveal SettingsFlyout.qml and NotificationCenter.qml
+    // use, down to the figures, because the user asked for this panel's fly-in to
+    // be the same gesture as theirs "just backwards" — and SettingsFlyout's
+    // comment above its own animation already claimed the clock flyout as the
+    // source of the curve, which quietly stopped being true when the morph took
+    // the fly-in away with it. Copying it back makes that comment true again.
+    //
+    // `t` is 0 shut and 1 open, and everything the panel does on the way in or
+    // the way out is a function of this one number, so the whole thing moves as a
+    // single gesture rather than several items each running their own tween.
+    // Nothing here writes `implicitWidth` or `implicitHeight`: resizing an
+    // xdg_popup is a compositor round-trip per frame, and the window is exactly
+    // the panel at both ends of the travel.
+    property real t: 0
+    /// Set while the close runs, so a second click cannot restart it halfway and
+    /// strand the panel at some `t` between 0 and 1.
+    property bool closing: false
+
+    // No `stagger()` here, and that is a decision rather than an omission.
+    // SettingsFlyout and NotificationCenter stagger their rows because they have
+    // six of them and a flat sheet that size arrives as a single slab; their own
+    // comment sets the ceiling — "a stagger you notice as 'slow' is worse than no
+    // stagger at all". This panel is two cards that move as one gesture, which is
+    // what the user asked for: more displacement, not more time, and a stagger
+    // across two items is a delay nobody can see a reason for. Copied here once
+    // and left unwired it would have been dead code with a sibling's figures on
+    // it, which is worse than not having it.
+
+    // OutQuart in, InQuart out — one curve in both directions, which is what
+    // "just backwards" means. The panel decelerates into place instead of
+    // arriving at speed and stopping dead, and it never travels past its mark:
+    // on a panel this size a bounce reads as a wobble.
     SequentialAnimation {
         id: openAnim
         NumberAnimation {
             target: root; property: "t"
             from: 0; to: 1
-            duration: 200
+            duration: 260
             easing.type: Easing.OutQuart
         }
     }
 
-    // Exits are quicker than entrances. No `from`: the animation starts from
-    // wherever `t` actually is, which is the only way a close can interrupt a
-    // half-finished open without a jump.
+    // The exit is quicker than the entrance (200 against 260), as in both
+    // siblings: a panel you are closing is a panel you have already decided
+    // about, and making it wait makes the next click feel late. No `from:` — the
+    // animation starts from wherever `t` actually is, which is the only way a
+    // close can interrupt a half-finished open without a jump.
     SequentialAnimation {
         id: closeAnim
         NumberAnimation {
@@ -441,349 +418,56 @@ PopupWindow {
         ScriptAction { script: root.hide() }
     }
 
-    // Escape closes, which has to be a `Shortcut` rather than a `Keys` handler.
-    // A `Keys` attached property only sees the key if some item in the window
-    // holds the focus, and with the timer form empty and the form's field
-    // unfocused, nothing in this popup does — so `Keys.onEscapePressed` further
-    // down (which is still right, and is what catches Escape once the field has
-    // focus) never ran. A window shortcut is matched against the window, and a
-    // popup holding the keyboard grab *is* the active window. It also beats the
-    // field: Qt resolves shortcuts before ordinary key propagation, so Escape
-    // closes the panel instead of being swallowed by a text field that ignores
-    // it. `ApplicationShortcut` would be wrong — that is for shortcuts that must
-    // work while *another* window is focused, which is not what this is.
-    Shortcut {
-        sequence: "Escape"
-        context: Qt.WindowShortcut
-        onActivated: root.close()
+    function hide() {
+        root.closing = false
+        root.visible = false
     }
 
-    // ---------------- the shape ----------------
-
-    /// How much of the pill's hover highlight the shape is still carrying.
-    /// `Module` paints a hovered pill `hoverBg` rather than `pillBg`, and the
-    /// click lands while the pointer is sitting on it — so at t=0 the shape has
-    /// to *be* the hovered pill, or the widget visibly cools off under the
-    /// cursor on the very click that opens it. Faded out by t, because a
-    /// `panelW` x `panelH` panel does not go hover-highlighted, and back in on
-    /// the way down so the pill that reappears under the pointer still looks
-    /// hovered.
-    ///
-    /// It reads `hoverCarry`, not `pillMouse.containsMouse`, and the reason is
-    /// the one thing a MouseArea's hover state cannot do: report a pointer it
-    /// never heard about. `containsMouse` only changes on a *motion* event, and
-    /// the common case here is a popup mapping under a pointer that has not
-    /// moved since it arrived on the pill — so the fresh read is "not hovered",
-    /// the shape starts its 300 ms life one shade off the widget it just
-    /// replaced, and the glyph on it comes up in the resting colour instead of
-    /// the cyan the bar was showing a frame earlier.
-    ///
-    /// So the hover the bar's pill was carrying is latched at the click, from
-    /// the bar's own flag, and `pillMouse` is only there for the pointer that
-    /// does wander into the panel's top margin while the panel is open.
-    ///
-    /// This is a fade, not a switch: at t=0 the shape is fully
-    /// `Tokyo.panelHover` and by t=1 it is `Tokyo.panelFill`, which is what
-    /// spends a highlight the bar's pill is still carrying and lets the panel be
-    /// a panel by the time the panes have faded in. Measured with the animation
-    /// slowed down, before the fill went opaque: the shape came up #2f334d
-    /// where the resting pill is #2c3149. It is a bigger step now — the highlight
-    /// is 30 units of RGB rather than 0.1 of alpha — and it is worth knowing
-    /// that the shape is therefore *lighter* than the hovered bar pill for its
-    /// first frames. That was read as the widget lighting up when the bar's pill
-    /// vanished under the shape; it is less certain now that the pill is still
-    /// there beside it, and `Tokyo.panelHover` is the one value here that is a
-    /// taste call rather than a measurement. `panelFill` is the dial-down if the
-    /// two shapes read as a seam.
-    ///
-    /// The bar's pill is *also* lit while this is open, via `pillLit`, so the
-    /// widget stays highlighted the way it was at the click. The fill fade and
-    /// that flag are not the same job: this one is the shape, that one is the
-    /// pill underneath it.
-    readonly property real hoverTint: (root.hoverCarry || pillMouse.containsMouse)
-        ? Math.max(0, 1 - root.t) : 0
-
-    /// Linear mix of two colours. Clamped because `t` overshoots to 1.04 on
-    /// purpose and Qt.alpha, handed 1.008, does not clip it — it complains, once
-    /// per frame, for every frame of the settle.
-    function mix(a, b, f) {
-        f = Math.max(0, Math.min(1, f))
-        return Qt.rgba(a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f,
-                       a.b + (b.b - a.b) * f, a.a + (b.a - a.a) * f)
-    }
-
-    // Declared first so it sits *under* everything: a click that the panel's own
-    // controls did not take should close the panel, and a click in the window's
-    // transparent margin should too. Over the panel itself it does nothing.
-    MouseArea {
-        anchors.fill: parent
-        onClicked: m => {
-            if (m.x < shape.x || m.y < shape.y
-                || m.x > shape.x + shape.width
-                || m.y > shape.y + shape.height)
-                root.close()
-        }
-    }
-
-    // ---------------- the joint ----------------
+    // The one thing that moves, and the only reason `box` has a parent to sit in
+    // at all. A plain Item, sized to the window and offset from the top-left, so
+    // `y` is a free number here rather than something an anchor recomputes: an
+    // anchored item has its `y` rewritten on every anchoring pass, and a binding
+    // or a tween writing to an anchored `y` is the classic way to get a reveal
+    // that runs to completion and moves nothing.
     //
-    // The widget's bottom edge and the panel's top edge are the same line, and
-    // both of them round it away: the widget in the bar's window, the panel in
-    // this one. The two roundings meet at a cusp — the widget's corner arc
-    // arrives at the joint travelling rightwards and the panel's top edge
-    // leaves it travelling leftwards, so the outline doubles back on itself and
-    // the widget's corner tapers to a point resting on a flat line. That cusp
-    // is the whole seam, and neither half can be given up: the widget's corner
-    // belongs to the widget, the panel's to the panel, and they are painted by
-    // two components in two windows.
-    //
-    // So the corner is added back here, in this window, over the bar: the
-    // widget's own corner squared off in its own colour, and a fillet sweeping
-    // the panel's top edge up into the widget's side. Both are cuts from the
-    // outline rather than a shape of their own, and what is left of the joint
-    // is one arc — the widget's side, the fillet, the panel's top edge — with
-    // the same vertical tangent at one end and the same horizontal tangent at
-    // the other, and no corner anywhere along it.
-    //
-    // Neither piece is faded in, and that is the part that took the thinking.
-    // The joint's resting place is a constant and the morph moves the top edge
-    // for 150ms, so anything drawn at the resting place and faded in at the end
-    // spends those 150ms hovering above an edge that is still six rows short of
-    // it — the shoulder comes in as a wedge hanging in the bar, which is the
-    // silhouette this whole arrangement exists to lose, only fainter. Tied to
-    // the edge instead, both pieces are simply *at* the joint in every frame:
-    // the fillet's radius is the edge's own distance from the widget's top (see
-    // `fillet`), and the patch is as strong as the part of the corner the shape
-    // has uncovered (see `patchMix`).
+    // It slides DOWN out of the window's own top edge rather than up into a
+    // reserved strip above it, which is why there is no strip: a strip is
+    // transparent window area, and an xdg_popup's grab region is its whole
+    // window, so a strip is a grab region larger than the panel you can see. The
+    // cost is that the panel's top edge is clipped for the first part of the
+    // fade, where it is at its faintest anyway.
     Item {
-        // The joint is the top strip of the window: the widget's own rows, which
-        // the shape's top edge spends the morph uncovering.
-        width: root.implicitWidth
-        height: root.drop
+        id: content
+        x: 0
+        y: (1 - root.t) * -root.slideFrom
+        width: parent.width
+        height: parent.height
+        opacity: root.t
 
-        // Below `shape`, so the shape's own top edge is what reveals these,
-        // edge-first, exactly as it reveals the panel. In front, the fillet
-        // would hang over the bar as a wedge of panel colour with the shape's
-        // fill behind it.
-
-        // The fillet: the corner cut out from between the widget's side and the
-        // panel's top edge, in the shape's own fill, so the panel's top edge
-        // runs up and over into the widget's side instead of stepping out to
-        // it. The path is that corner minus a quarter disc of radius `fillet`,
-        // which is the only arc tangent to both edges — hence the same
-        // `fillet` twice, and `shape.y` twice as the tangent edge.
-        //
-        // The colour is read off `shape` rather than rebuilt from Tokyo, so the
-        // shoulder is never a shade behind the panel it is part of.
-        //
-        // `strokeWidth: 0` on both paths is load-bearing, not tidiness: a
-        // ShapePath left at its defaults strokes itself, and the stroke this Qt
-        // build reaches for is a two-pixel band of opaque white. Measured here
-        // on the left fillet, which carries the explicit zero: no white pixel
-        // anywhere along 44 rows; the mirrored path without it, 155.
-        Shape {
+        // The panel's own surface. Fills `content`, which fills the window, which
+        // is exactly `panelW` x `panelH` — so there is nothing below it and
+        // nothing around it.
+        Rectangle {
+            id: box
             anchors.fill: parent
-            ShapePath {
-                fillColor: shape.color
-                strokeWidth: 0
-                PathSvg {
-                    path: `M ${face.x} ${shape.y - root.fillet} A ${root.fillet} ${root.fillet} 0 0 1 ${face.x - root.fillet} ${shape.y} L ${face.x} ${shape.y} Z`
-                }
-            }
-            ShapePath {
-                fillColor: shape.color
-                strokeWidth: 0
-                PathSvg {
-                    path: `M ${face.x + root.pillW} ${shape.y - root.fillet} A ${root.fillet} ${root.fillet} 0 0 0 ${face.x + root.pillW + root.fillet} ${shape.y} L ${face.x + root.pillW} ${shape.y} Z`
-                }
-            }
-        }
+            color: Tokyo.bgDark
+            radius: Tokyo.pillRadius
+            border.color: Tokyo.bgHighlight
+            border.width: 1
 
-        // The widget's own bottom corner, squared off, and *after* the fillet so
-        // that the fillet's inner edge lands on the widget's fill rather than on
-        // this patch's. A rect and not a path: the corner is a `pillRadius`
-        // square, and the crescent of that square the widget already paints is
-        // the widget's own colour, so filling the square squares the corner and
-        // touches nothing else.
-        //
-        // `pill.color`, not a Tokyo token, so it follows the widget through its
-        // own hover state — the panel is open, so the widget is lit, and a
-        // patch in the resting colour is a step in the widget's own corner. The
-        // fallback is a standalone preview, which has no bar to ask.
-        //
-        // `patchMix` on both, because until the shape's edge is level with the
-        // widget's bottom the shape is painting over this corner in its own fill
-        // and the patch would be double-covering it: at full strength from the
-        // first frame it is a lit square sitting on top of the panel's own rows
-        // for two thirds of the morph.
-        Rectangle {
-            x: face.x
-            y: root.drop - Tokyo.pillRadius
-            width: Tokyo.pillRadius
-            height: Tokyo.pillRadius
-            opacity: root.patchMix
-            color: root.pill !== null ? root.pill.color : Tokyo.pillBg
-        }
-        Rectangle {
-            x: face.x + root.pillW - Tokyo.pillRadius
-            y: root.drop - Tokyo.pillRadius
-            width: Tokyo.pillRadius
-            height: Tokyo.pillRadius
-            opacity: root.patchMix
-            color: root.pill !== null ? root.pill.color : Tokyo.pillBg
-        }
-    }
-
-    Rectangle {
-        id: shape
-        // Centred in the window, and the window is centred on the pill, so the
-        // shape's centre is the pill's centre at every value of `t`: the growth
-        // is symmetric, and the face — drawn outside the clip, below — never
-        // moves by so much as a pixel. Verified by screenshot, on a freshly
-        // launched process driven by a real click: the open panel's fill spans
-        // 728.50..1190.50 and the closed pill's 914.50..1004.50 — centres 959.50
-        // both, in every frame of the burst, the 1.04 overshoot included.
-        x: (root.implicitWidth - width) / 2
-        // The one thing here that is a function of `t` and not a lerp between a
-        // pill's number and a panel's: the top edge walks down exactly as far as
-        // the pill is tall, so the open panel hangs *under* the widget rather
-        // than taking the widget's row for itself. At t=0 this is 0, which is the
-        // pill's top edge, so the shape is still the pill's rect on the frame the
-        // click lands.
-        //
-        // Capped at t=1 and not left to follow the 1.04 overshoot, deliberately:
-        // an overshooting top edge would push the panel's top row back up into
-        // the bar's padding, which is a joint re-opening. The bottom edge
-        // overshoots instead, so the panel still breathes past its resting size.
-        //
-        // This *is* the top edge sliding down out of the bar, and it was tried
-        // once and thrown out — but that was a different shape: a narrow tab
-        // bridging a gap, with the panel a second rectangle below it. That had
-        // two joints to be wrong about, one of which (the tab's square top
-        // corners) existed only because the pill whose rounded bottom they used
-        // to be was no longer drawn. This is one rectangle with both edges
-        // moving, and the widget it comes off is still drawn the whole way.
-        //
-        // What did have to go, and was the reason it could not be done before:
-        // the panel's top is no longer the widget's own row. The label was the
-        // panel's first `pillH` rows and the digits the window's, so at rest the
-        // two were adjacent rather than coincident, and the label only ever came
-        // near them as the shape uncovered it. There is nothing left up there to
-        // replace — it is `pad` of margin now, and the reading is the widget's
-        // alone. The widget reads the clock, the panel is where the clock is read.
-        y: root.drop * Math.min(1, root.t)
-        // Capped against the window's own height, so the settle's overshoot
-        // cannot push the last fraction of a pixel off the surface.
-        width: Math.min(root.implicitWidth, root.pillW + (root.panelW - root.pillW) * root.t)
-        height: Math.min(root.implicitHeight, root.pillH + (root.panelH - root.pillH) * root.t)
-        // The pill's corner at t=0, the panel's at t=1: the same corner opening
-        // out as the shape grows, so the shape reads as one thing resizing
-        // rather than a rectangle that was edited. All four corners move
-        // together, including the two at the top, which are the widget's own —
-        // so the widget's outline rounds out as it opens instead of popping.
-        // Both tokens are 10 (the Hyprland window radius), so this is a
-        // constant today and the corner does not animate; the growth and the
-        // joint carry the morph instead. Dial one token and the run returns.
-        radius: Tokyo.pillRadius + (Tokyo.panelRadius - Tokyo.pillRadius) * root.t
-        // The pill's own background, for the whole morph and not just at t=0 —
-        // plus whatever hover highlight the pill was carrying, which the morph
-        // spends. `panelFill`/`panelHover` rather than `pillBg`/`bgHighlight`:
-        // the panel is the pill, grown, so the fill is pinned to the colour the
-        // lit bar pill actually is (opaque #2f334d) and the highlight to a real
-        // step in RGB, because an opaque fill cannot express the old alpha-only
-        // difference. See both in Tokyo.qml.
-        color: root.mix(Tokyo.panelFill, Tokyo.panelHover, root.hoverTint)
-        // No border, and that is load-bearing twice over. A Rectangle's border
-        // is drawn *inside* its rect, so a 1px stroke would shrink the fill: at
-        // t=0 the shape would be a pixel narrower and shorter than the pill it
-        // is standing in for, and the stroke itself would sit one pixel above
-        // the clock's cap height — a hairline ruled across the top of the
-        // digits, which is what a border there reads as. Without one the rect
-        // *is* the painted area: t=0 is the pill's rect exactly, and the
-        // content below is laid out against the same edges with nothing
-        // clipped.
-    }
-
-    // Everything that is *panel* rather than *pill*: clipped to the shape and
-    // faded in behind it. The clock face is deliberately not in here — it has to
-    // hold still on the widget's own pixels while the shape grows away from
-    // under it, and a clip that moves with the shape would drag it sideways for
-    // the length of the animation.
-    //
-    // This item is the shape's own rect, so the clip *is* the shape: the panel
-    // gets revealed edge-first as the blob widens, the way the pill's own
-    // corners opened in Caelestia. What is inside it is laid out at its final
-    // size and never resized — an earlier version had the grid track the shape's
-    // width, which meant the two cells were squeezed to 69px and back for
-    // 300ms, re-wrapping every label and reflowing the timer list on each frame.
-    // A morph that reflows its own contents reads as a layout bug, not a blob.
-    Item {
-        id: panel
-        x: shape.x
-        y: shape.y
-        width: shape.width
-        height: shape.height
-        clip: true
-        opacity: Math.max(0, Math.min(1, (root.t - root.contentIn) / 0.5))
-
-        // The panel's own coordinate space: the *final* `panelW` x `panelH`
-        // rectangle, in
-        // window coordinates, so nothing inside it moves by so much as a pixel
-        // while the shape grows around it. `x` is the final shape's left edge
-        // expressed in the shape's own — still moving — coordinates. The two are
-        // easy to confuse: `panel` is already offset by `shape.x`, so a child
-        // placed in window coordinates lands `room` to the right of where it
-        // belongs, which is how the panes ended up shoved off-centre and the
-        // right-hand one clipped by the shape.
-        Item {
-            id: panelSpace
-            x: (shape.width - root.panelW) / 2
-            y: 0
-            width: root.panelW
-            height: root.panelH
-
-            // The timers form takes a text field, and the popup holds the keyboard
-            // (grabFocus) rather than a layer panel, so the field only needs an
-            // explicit focus — no compositor trickery. Escape arrives here by
-            // propagating up the item chain from the field, which ignores it; the
-            // handler has to sit on an Item, not on the Window, to be in that chain.
-            //
-            // That chain only exists while something in the popup *has* focus,
-            // though, and with the form empty nothing in here does — so this
-            // handler, on its own, was dead code: Escape did nothing at all with
-            // the panel open (verified with a temporary IPC read-out of
-            // `open`/`visible`/`t`: the press left every one of them untouched),
-            // and neither does an xdg_popup get dismissed by the compositor on
-            // Escape, so there was no second route. `Shortcut` below is the one
-            // that works: it is matched against the window rather than against a
-            // focus item, and a popup with a keyboard grab is the active window.
-            Keys.onEscapePressed: root.close()
-
-            // The panel used to open with a `time and date` label on the pill's
-            // own 26 rows and a 1 px rule under it. Both are gone, and what is
-            // left above the panes is `pad` — the same margin the panel already
-            // had on its other three sides, so 12 is this panel's margin and no
-            // new constant is warranted.
-            //
-            // It is not a `pad` for looks. Flush was tried and it broke two
-            // things at once: `pillMouse` is a later sibling of `panel` and so
-            // topmost, and a `pillH` strip off the shape covers cell y 0..26 —
-            // the whole of `headerRow`, from QuadCell's `pad` 10 to
-            // `pad` + `headerH` 24, and the top 20 of the 22 the `PillButton`s
-            // are — so pressing either one closed the flyout. And a pane flush
-            // with the panel's own edge does not read as a bordered card:
-            // `paneEdge` is drawn, but with no air on its outside it is the
-            // panel's outline rather than the pane's. One inset fixes both, and
-            // the strip it leaves is bare panel fill — which is what a
-            // click-to-close target wants to be.
+            // The cards sit at `pad` from the surface's own edge, and that inset is
+            // load-bearing: a card flush with the surface reads as the surface's own
+            // outline rather than as a card on it. `pad` and `cellGap` are
+            // SysFlyout's 8 (see the geometry block above) — the whole point of
+            // matching that file's look is not to leave one figure behind.
             GridLayout {
                 id: grid
-                x: root.pad
-                y: root.pad
-                width: root.panelW - root.pad * 2
+                anchors {
+                    left: parent.left; right: parent.right; top: parent.top
+                    leftMargin: root.pad; rightMargin: root.pad; topMargin: root.pad
+                }
                 columns: 2
                 columnSpacing: root.cellGap
-
                 // ================= 1. timers =================
                 QuadCell {
                     title: "TIMERS"
@@ -792,7 +476,7 @@ PopupWindow {
                     Layout.preferredHeight: root.cellH
 
                     // The two bulk controls ride in the title row, the one place a
-                    // cell gets for something that is not the cell's own content.
+                    // card gets for something that is not the card's own content.
                     // The pair is a pause/resume toggle plus a stop — the same two
                     // controls every row already carries one at a time, so the
                     // title row reads as their row-level version rather than a new
@@ -802,13 +486,13 @@ PopupWindow {
                     // is: play while something is running, pause once nothing is.
                     // Reading it the other way round — showing what the press will
                     // do — would make one glyph mean "running" in a row and
-                    // "paused" in the title row of the same pane. `pausable` greys
+                    // "paused" in the title row of the same card. `pausable` greys
                     // the toggle out when the list is nothing but finished timers,
                     // since a control that would do nothing is worse than none.
                     //
                     // Glyph-only because the labels do not fit: the title row is
                     // 194 px and "PAUSE ALL" + "STOP ALL" measure ~165 px between
-                    // them before the pane title, so the title would be the thing
+                    // them before the card title, so the title would be the thing
                     // that has to go. Both glyphs are already on every timer row,
                     // so nothing new has to be learned to read them.
                     headerExtra: Row {
@@ -816,13 +500,13 @@ PopupWindow {
                         visible: TimerState.active
 
                         PillButton {
-                            glyph: TimerState.running.length > 0 ? "\uf04c" : "\uf04b"
+                            glyph: TimerState.running.length > 0 ? "\uF04C" : "\uF04B"
                             accent: Tokyo.yellow
                             enabled: TimerState.pausable
                             onClicked: TimerState.pauseAll()
                         }
                         PillButton {
-                            glyph: "\uf068"        // times
+                            glyph: "\uF068"        // times
                             accent: Tokyo.magenta
                             onClicked: TimerState.stopAll()
                         }
@@ -830,16 +514,16 @@ PopupWindow {
 
                     // The full panel, not a summary: this is where a timer is
                     // actually set. The list runs down to the slider and the form is
-                    // pinned to the bottom of the pane, so what is running and what
-                    // to set are the two ends of one pane.
+                    // pinned to the bottom of the card, so what is running and what
+                    // to set are the two ends of one card.
                     //
-                    // The pane is as tall as the *clock* pane's three stacked
-                    // blocks. Rather than centring the whole thing — which put the
-                    // form in the middle of nowhere — the form is pinned to the
-                    // bottom, and the row cap is left to `TimerPanel` to derive from
-                    // the space between them. It used to be a hard-coded two rows,
-                    // which was right for the old square cell and left a 160 px hole
-                    // in a pane twice that size.
+                    // The card is as tall as the *clock* card's three stacked blocks.
+                    // Rather than centring the whole thing — which put the form in
+                    // the middle of nowhere — the form is pinned to the bottom, and
+                    // the row cap is left to `TimerPanel` to derive from the space
+                    // between them. It used to be a hard-coded two rows, which was
+                    // right for the old square cell and left a 160 px hole in a card
+                    // twice that size.
                     TimerPanel {
                         id: timerPanel
                         anchors { left: parent.left; right: parent.right; top: parent.top }
@@ -856,15 +540,15 @@ PopupWindow {
                     Layout.preferredWidth: root.cellW
                     Layout.preferredHeight: root.cellH
 
-                    // Three blocks stacked in one pane, in the order they are asked
+                    // Three blocks stacked in one card, in the order they are asked
                     // for: what time is it (here and elsewhere), what day is it,
                     // how long has this been up.
                     //
-                    // The three old cell titles survive as 9 px block labels in
-                    // their original accent colours. Losing them would leave the
-                    // pane reading as one undifferentiated column — and the colour
-                    // coding is the only thing that says which number is a
-                    // timezone and which is a boot time at a glance.
+                    // The three old cell titles survive as block labels in their
+                    // original accent colours. Losing them would leave the card
+                    // reading as one undifferentiated column — and the colour coding
+                    // is the only thing that says which number is a timezone and
+                    // which is a boot time at a glance.
                     Item {
                         id: clockBody
                         anchors { left: parent.left; right: parent.right; top: parent.top }
@@ -885,7 +569,7 @@ PopupWindow {
                                 anchors { left: parent.left; top: parent.top }
                                 text: "TIME"
                                 color: Tokyo.blue
-                                font { family: Tokyo.fontFamily; pixelSize: 9; bold: true; letterSpacing: 1.5 }
+                                font { family: Tokyo.fontFamily; pixelSize: 10; bold: true; letterSpacing: 1.5 }
                             }
 
                             Text {
@@ -894,7 +578,7 @@ PopupWindow {
                                     left: parent.left; right: parent.right
                                     top: timeLabel.bottom; topMargin: 5
                                 }
-                                text: Qt.formatDateTime(root.now, "HH:mm:ss")
+                                text: Qt.formatDateTime(root.clock, "HH:mm:ss")
                                 color: Tokyo.fg
                                 font { family: Tokyo.fontFamily; pixelSize: 28; bold: true; letterSpacing: 0.5 }
                                 elide: Text.ElideRight
@@ -998,7 +682,7 @@ PopupWindow {
                                             }
                                             text: zoneRow.zone.clock
                                             color: Tokyo.fg
-                                            font { family: Tokyo.fontFamily; pixelSize: 13; letterSpacing: 0.5 }
+                                            font { family: Tokyo.fontFamily; pixelSize: 13; bold: true }
                                         }
                                     }
                                 }
@@ -1031,7 +715,7 @@ PopupWindow {
                                 anchors { left: parent.left; top: parent.top }
                                 text: "DATE"
                                 color: Tokyo.yellow
-                                font { family: Tokyo.fontFamily; pixelSize: 9; bold: true; letterSpacing: 1.5 }
+                                font { family: Tokyo.fontFamily; pixelSize: 10; bold: true; letterSpacing: 1.5 }
                             }
 
                             Text {
@@ -1040,7 +724,7 @@ PopupWindow {
                                     left: parent.left; right: parent.right
                                     top: dateLabel.bottom; topMargin: 5
                                 }
-                                text: Qt.formatDateTime(root.now, "dddd")
+                                text: Qt.formatDateTime(root.clock, "dddd")
                                 color: Tokyo.fg
                                 font { family: Tokyo.fontFamily; pixelSize: 24; bold: true }
                                 elide: Text.ElideRight
@@ -1052,24 +736,24 @@ PopupWindow {
                                     left: parent.left; right: parent.right
                                     top: weekday.bottom; topMargin: 3
                                 }
-                                text: Qt.formatDateTime(root.now, "dd MMMM yyyy")
+                                text: Qt.formatDateTime(root.clock, "dd MMMM yyyy")
                                 color: Tokyo.fg
                                 font { family: Tokyo.fontFamily; pixelSize: 14 }
                                 elide: Text.ElideRight
                             }
 
                             // The one-line date, compact: the format asked for
-                            // (dd.mm.yyyy), the ISO calendar week number, and
-                            // the current moon phase (glyph only).
+                            // (dd.mm.yyyy), the ISO calendar week number, and the
+                            // current moon phase.
                             Text {
                                 id: isoDate
                                 anchors {
                                     left: parent.left; right: parent.right
                                     top: fullDate.bottom; topMargin: 3
                                 }
-                                text: Qt.formatDateTime(root.now, "dd.MM.yyyy")
-                                    + "  ·  week " + root.weekNumber(root.now)
-                                    + "  ·  " + root.moonPhase(root.now)
+                                text: Qt.formatDateTime(root.clock, "dd.MM.yyyy")
+                                    + "  ·  week " + root.weekNumber(root.clock)
+                                    + "  ·  " + root.moonPhase(root.clock)
                                 color: Tokyo.trayGlyph
                                 font { family: Tokyo.fontFamily; pixelSize: 10 }
                                 elide: Text.ElideRight
@@ -1091,7 +775,7 @@ PopupWindow {
                                 anchors { left: parent.left; top: parent.top }
                                 text: "UPTIME"
                                 color: Tokyo.teal
-                                font { family: Tokyo.fontFamily; pixelSize: 9; bold: true; letterSpacing: 1.5 }
+                                font { family: Tokyo.fontFamily; pixelSize: 10; bold: true; letterSpacing: 1.5 }
                             }
 
                             Text {
@@ -1118,7 +802,7 @@ PopupWindow {
                                 // Re-worded, never hidden: an anchor bound to a
                                 // conditional keeps the value it was first given
                                 // (the rule above the timer creator froze on its
-                                // idle value for the same reason), and the pane's
+                                // idle value for the same reason), and the card's
                                 // height is measured off this block — so hiding it
                                 // would both freeze `daysLine` and make the whole
                                 // panel jump 18 px when the script's first result
@@ -1149,7 +833,7 @@ PopupWindow {
                         }
                     }
 
-                    // What the pane actually needs, measured bottom-up off the last
+                    // What the card actually needs, measured bottom-up off the last
                     // block. `cellH` adds QuadCell's own chrome to this; nothing
                     // reads a positioner's implicit height, because a positioner
                     // can be polished before its children exist and never polished
@@ -1160,94 +844,5 @@ PopupWindow {
             }
         }
     }
-
-    // The widget's face, on the widget's own pixels, for as long as the shape's
-    // top edge is still below it. Its x is written out longhand rather than
-    // derived from `shape` on purpose: the widget does not move during the
-    // morph, and the shape's width and y are both changing underneath it.
-    //
-    // This copy is not here because the bar's copy stands down — the bar's copy
-    // never stands down any more. It is here because the shape *covers* the bar's
-    // copy until its top edge has walked down past it, and a widget that loses
-    // its clock on the click that opens it is the one pop this morph cannot
-    // afford. Both copies are driven by one `glyphMix` and read one `now`, so
-    // they are the same face at the same pixels in the same colour and which one
-    // is drawing is not a thing you can see.
-    //
-    // Nothing fades it out at the end of the morph. It used to, over the last
-    // fifth of `t`, to hand over to the bar's copy — which needed the shrink
-    // with it, and the shrink was the tell, because a copy of a stationary thing
-    // shrinking is a stationary thing changing size twice. The hand-over no
-    // longer needs either: the two copies agree, so the only thing a fade bought
-    // was one fewer redundant draw.
-    ClockFace {
-        id: face
-        x: (root.implicitWidth - root.pillW) / 2
-        y: 0
-        width: root.pillW
-        height: root.pillH
-        now: root.pill !== null ? root.pill.now : root.now
-        glyphMix: root.glyphMix
-        // The same latched hover the shape's fill uses, for the same reason: the
-        // face is cyan on the hovered pill in the bar, and it must not come back
-        // in the resting colour for the frames it is still on screen.
-        hovered: root.hoverCarry || pillMouse.containsMouse
-    }
-
-    MouseArea {
-        id: pillMouse
-        // On `shape`, not on `face`, because the thing to click is not the
-        // widget any more — by the time the panel is open, the shape *is* the
-        // panel's rect, so this one area covers the widget at t=0 and the panel
-        // at t=1 without a second MouseArea, sliding down with the joint in
-        // between.
-        //
-        // Its height is the part that has to be right, and it is not one number:
-        // it is `pillH` closed, so the widget's own row is still clickable, and
-        // `pad` open, so it is only the bare strip the top margin leaves. Left at
-        // `pillH` it would still be 26 rows, and past the 12 rows of top margin
-        // that is 14 rows into the cells: `headerRow` starts at QuadCell's `pad`
-        // (10), so 4 of the 14 are title row, and the `PillButton`s start 4 above
-        // that and are 22 tall, so 8 of the 14 are button. `pillMouse` is a later
-        // sibling of `panel` and so topmost in the input stack, and a press up
-        // there closed the flyout instead of pausing the timers.
-        //
-        // The ramp is `contentIn` and not `t`, and what decides it is the panes
-        // rather than the strip. Ramped on `t` the strip is still over the
-        // buttons' rows until `t` is 0.57, by which point the content is 44%
-        // opaque, so a press in the opening frames would land on a button that
-        // was on screen. On `t / contentIn` the strip is already down to `pad` on
-        // the frame the content starts to fade in, so it is never over a row
-        // anyone can see. Below `contentIn` the panes have no opacity at all, and
-        // the strip is still the widget's own row there, which closed the panel
-        // anyway.
-        //
-        // `min(1, ...)`, like `shape.y` above it: the burst overshoots to 1.04
-        // and an unclamped strip would dip under `pad` on the settle, which is
-        // the wrong side to be wrong on and buys nothing.
-        //
-        // `shape.x`/`shape.y`, not `shape.left`/`shape.top`: those are anchor
-        // *lines* (QQuickAnchorLine) on any item Qt has anchored, and assigning
-        // one to a qreal is 0 with no warning at all. `shape` is positioned by
-        // hand rather than by anchors, so its `x` and `y` are the plain
-        // coordinates they look like. This MouseArea once read `face.x` and
-        // `face.y` off a face that *was* anchored, and sat at the window's left
-        // edge, 202px from the thing it was meant to cover.
-        x: shape.x
-        y: shape.y
-        // The shape's width, so the strip is as wide as whatever it is covering:
-        // the pill's at t=0, the panel's at t=1. Also what `hoverTint` samples,
-        // since the popup's surface sits over this rect and the bar's own
-        // MouseArea goes quiet the moment the popup grabs the pointer.
-        width: shape.width
-        height: root.pillH + (root.pad - root.pillH) * Math.min(1, root.t / root.contentIn)
-        hoverEnabled: true
-        // The strip closes. It is what the panel is for and the strip is what
-        // you reach for, and the toggle has to be reversible from the panel as
-        // well as from the bar. (The widget's own row closes it too, by falling
-        // outside the shape and hitting the catch-all above.) A click during the
-        // close is a no-op: `close()` ignores it, which is what keeps the shape
-        // from being re-run backwards halfway down.
-        onClicked: root.close()
-    }
 }
+
