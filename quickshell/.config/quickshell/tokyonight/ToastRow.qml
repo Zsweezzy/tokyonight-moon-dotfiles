@@ -29,12 +29,14 @@ Item {
     ///
     /// Required, not assigned. When a Repeater's model is an array of objects,
     /// QML fills a delegate's required properties from the matching key — so
-    /// `[{n: notification}]` fills this with no expression in between. Every
-    /// other way of handing the notification to the delegate was tried and
-    /// none of them survived: a `modelData.n` binding evaluated to null as
-    /// soon as the row was on screen, which showed as a toast with an icon and
-    /// no text at all.
+    /// `[{n: notification}]` fills this with no expression in between.
     required property var n
+    /// The row's own index in `rows`. Required, and not taken from context:
+    /// declaring `required property var n` above switches the delegate to
+    /// required-property filling, and the unqualified `index` that used to come
+    /// from the Repeater's context is then simply not there — `onDone` threw
+    /// `ReferenceError: index is not defined` and the row never left the stack.
+    required property int index
     /// the store, for the icon map
     property var store: null
     /// how long this row stays, in ms
@@ -42,6 +44,18 @@ Item {
 
     /// emitted when the row has finished sliding out and can be dropped
     signal done()
+
+    /// True once the row has decided to leave. Every exit path funnels
+    /// through `leave()`, so `done()` fires exactly once per row: the ×, the
+    /// expiry timer and the daemon's `onClosed`/`onNChanged` can all arrive in
+    /// the same instant, and a second `done()` with the row already spliced
+    /// out of the model lands on a different row with the wrong index.
+    property bool leaving: false
+    function leave() {
+        if (root.leaving) return
+        root.leaving = true
+        root.done()
+    }
 
     readonly property color accent: n !== null && n.urgency === 2
         ? Tokyo.red          // NotificationUrgency.Critical
@@ -107,27 +121,35 @@ Item {
             x: 62
             y: 10
             // Stops short of the × rather than running the summary under it.
-            width: dismiss.left - x - 6
+            // `.x`, not `.left`: in this Qt build Item.left is a QQuickAnchorLine
+            // object, not a number, so the arithmetic below went NaN, the width
+            // became 0, and every glyph in the column silently vanished — a card
+            // with an icon and a × and no text. `.x` is the plain number, and it
+            // is in the same card-relative space as `x`, so the two subtract.
+            width: dismiss.x - x - 6
             spacing: 2
 
             Text {
                 width: parent.width
-                text: root.n ? root.n.appName : ""
+                text: root.n ? (root.n.appName || root.n.app || "") : ""
                 color: Tokyo.dim
                 elide: Text.ElideRight
                 font { family: Tokyo.fontFamily; pixelSize: 10; letterSpacing: 0.8 }
+                visible: root.n !== null && String(root.n.appName || root.n.app || "") !== ""
             }
             Text {
                 width: parent.width
-                text: root.n ? root.n.summary : ""
+                text: root.n ? (root.n.summary || root.n.body || root.n.appName || root.n.app || "Notification") : ""
                 color: root.n !== null && root.n.urgency === 2 ? Tokyo.red : Tokyo.fg
                 elide: Text.ElideRight
+                maximumLineCount: 3
+                wrapMode: Text.WordWrap
                 font { family: Tokyo.fontFamily; pixelSize: 12; bold: true }
             }
             Text {
                 width: parent.width
-                visible: root.n !== null && String(root.n.body || "") !== ""
-                text: root.n ? root.n.body : ""
+                visible: root.n !== null && String(root.n.body || "") !== "" && String(root.n.body) !== String(root.n.summary)
+                text: root.n ? (root.n.body || root.n.summary || "") : ""
                 color: Tokyo.dim
                 elide: Text.ElideRight
                 maximumLineCount: 3
@@ -141,7 +163,7 @@ Item {
             id: dismiss
             anchors { right: parent.right; rightMargin: 4
                       verticalCenter: parent.verticalCenter }
-            width: 20; height: 20
+            width: 28; height: 28
             radius: 5
             color: dHover.containsMouse ? Tokyo.bgHighlight : "transparent"
 
@@ -159,7 +181,7 @@ Item {
                 // `done()` rather than `dismiss()` on the daemon: it is the same
                 // path the timeout and the client's own close take, so a hand
                 // dismiss cannot land where an automatic one does not.
-                onClicked: root.done()
+                onClicked: root.leave()
             }
         }
 
@@ -188,7 +210,7 @@ Item {
                             : String(root.n.appName).toLowerCase().replace(/\s+/g, "-"),
                     ])
                 }
-                root.done()
+                root.leave()
             }
         }
     }
@@ -200,7 +222,7 @@ Item {
             ? root.n.expireTimeout
             : root.timeout
         repeat: false
-        onTriggered: root.done()
+        onTriggered: root.leave()
     }
 
     Component.onCompleted: {
@@ -209,7 +231,7 @@ Item {
         // whatever it happened to be.
         root.shown = 0
         Qt.callLater(() => root.shown = 1)
-        if (root.n === null) { root.done(); return }
+        if (root.n === null) { root.leave(); return }
         // `resident` is the client's own statement that this notification wants
         // to stay until it is acted on — a running transfer, a pending
         // question. Honouring it is the difference between a toast and a
@@ -218,12 +240,21 @@ Item {
         life.start()
     }
 
+    // The daemon's object dying — the client closed or replaced the
+    // notification, quickshell drops it — nulls `n`, which blanks every Text
+    // at once and leaves an empty card. Leave immediately: `onClosed` can no
+    // longer arrive from an object that is already gone, and the timer below
+    // would otherwise spend its remaining seconds on a card with nothing in it.
+    onNChanged: {
+        if (root.n === null || root.n === undefined) root.leave()
+    }
+
     // The notification expiring on its own — the client closed it, or it hit its
     // own timeout — takes the row with it, so the toast does not sit there
     // showing something that is no longer true.
     Connections {
         target: root.n
-        function onClosed() { root.done() }
+        function onClosed() { root.leave() }
     }
 
 

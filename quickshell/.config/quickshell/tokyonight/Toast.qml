@@ -15,7 +15,6 @@
 // rather than its top-left.
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 
 PopupWindow {
     id: root
@@ -42,15 +41,13 @@ PopupWindow {
         root.anchor.adjustment = PopupAdjustment.All
     }
 
-    // There is one Toast per bar window and one notification per arrival, so
-    // without this every monitor's stack would show the same toast at once. The
-    // window on the focused monitor takes it and the rest ignore it. The
-    // fallback is the first screen, so a notification arriving before Hyprland
-    // has reported a focus still lands somewhere.
-    readonly property string wantScreen: Hyprland.focusedMonitor !== null
-        ? Hyprland.focusedMonitor.name
-        : (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : "")
-    readonly property bool mine: root.screen !== null && root.screen.name === root.wantScreen
+    // One Toast per bar window, so one per monitor, and every one of them takes
+    // the same notification: the toast belongs on whichever screen you happen to
+    // be looking at, and gating that on anything you have to keep in sync — a
+    // screen name, or which monitor last had keyboard focus — means the
+    // notification arrives on a screen you are not looking at and reads as
+    // "nothing showed up". Duplicates are the cheap failure; a missed
+    // notification is not.
 
     readonly property real padH: 12
     readonly property real padV: 10
@@ -80,7 +77,7 @@ PopupWindow {
     /// object, so the row can dismiss itself, run one of its actions, and be
     /// told when the notification expired rather than guessing from a timer.
     function push(n) {
-        if (!root.mine || n === null || n === undefined) return
+        if (n === null || n === undefined) return
         root.rows = [{ n: n }].concat(root.rows)
         root.trim()
     }
@@ -106,12 +103,14 @@ PopupWindow {
         }
     }
 
-    function remove(n) {
-        // By identity of the daemon's object, which is what `rows` holds. The
-        // delegate's `n` is the same object — unlike a ListView's modelData,
-        // which is a wrapper — so this does match.
-        const at = root.rows.findIndex(r => r.n === n)
-        if (at < 0) return
+    function remove(at) {
+        // By the delegate's index, never by the daemon's object. That object is
+        // destroyed when the client closes the notification, which nulls the
+        // row's `n` — so an identity lookup finds nothing and the row then
+        // stays on screen forever with every Text blanked. `index` is the
+        // Repeater's, and it tracks `rows` on every reassignment.
+        if (at < 0 || at >= root.rows.length) return
+        const n = root.rows[at].n
         root.rows = root.rows.slice(0, at).concat(root.rows.slice(at + 1))
         close(n)
     }
@@ -135,7 +134,7 @@ PopupWindow {
                     width: column.width
                     store: root.store
                     timeout: root.timeout
-                    onDone: root.remove(n)
+                    onDone: root.remove(index)
                 }
             }
         }

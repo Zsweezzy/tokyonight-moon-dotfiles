@@ -23,6 +23,16 @@ check() { # check <description> <file> <regex>
 check "bell badge hides itself, not just its text" NotificationBell.qml 'visible: unread > 0'
 check "bell badge is not an empty-string placeholder"  NotificationBell.qml \
       'text: unread > 9 \? "9\+" : String\(unread\)'
+check "toast exits funnel through the once-only leave guard" ToastRow.qml \
+      'function leave\(\)'
+check "the × dismiss is idempotent (leave, not done)" ToastRow.qml \
+      'onClicked: root.leave\(\)'
+check "expiry + daemon close cannot double-remove (leave, not done)" \
+      ToastRow.qml 'onTriggered: root.leave\(\)'
+check "a daemon-released toast leaves once (leave, not done)" \
+      ToastRow.qml 'onNChanged:'
+check "toast removal carries the row's own index, not a stale one" \
+      Toast.qml 'onDone: root.remove\(index\)'
 # the height expression wraps across lines, so the two halves are matched apart
 if grep -A1 'entries.length === 0' NotificationCenter.qml | grep -qE '^[[:space:]]*\? 0'; then
     echo "ok   centre reserves no list height when empty"
